@@ -19,6 +19,8 @@ c:\Users\a\repos\nova-core   ->  c--Users-a-repos-nova-core   # same project, di
 
 `memory-manager` keys memory by the **normalized git remote** instead.
 
+![Two memory layers merged into the directory Claude Code reads, keyed by the normalized git remote](docs/diagrams/architecture-doc-inline.svg)
+
 ## The two layers
 
 | Layer | Holds | Stored in |

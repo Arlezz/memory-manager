@@ -1,5 +1,11 @@
 # Architecture
 
+![Two memory layers merged into the directory Claude Code reads, keyed by the normalized git remote](diagrams/architecture-doc-inline.svg)
+
+Other sizes of the same diagram live in [`diagrams/`](diagrams/): `architecture-doc-wide` for a
+wiki page, `architecture-slide-16x9` for a deck. Each ships as a standalone `.html` and a portable
+`.svg`.
+
 ## The problem, precisely
 
 Claude Code stores per-project memory in `~/.claude/projects/<mangled-path>/memory/`, where
