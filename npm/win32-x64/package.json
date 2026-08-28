@@ -1,0 +1,22 @@
+{
+  "name": "@memory-manager/win32-x64",
+  "version": "0.1.0",
+  "description": "memory-manager binary for Windows x64",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Arlezz/memory-manager.git"
+  },
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "bin": {
+    "memory-manager": "memory-manager.exe"
+  },
+  "files": [
+    "memory-manager.exe"
+  ]
+}

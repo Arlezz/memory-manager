@@ -1,0 +1,34 @@
+{
+  "name": "memory-manager",
+  "description": "Cross-machine memory for Claude Code. Merges project and personal memory layers at session start and sends what the session wrote back at session end.",
+  "author": {
+    "name": "Anton Rodriguez",
+    "url": "https://github.com/Arlezz"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/launch.js\" sync",
+            "timeout": 60,
+            "statusMessage": "Syncing memory..."
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/launch.js\" push",
+            "timeout": 60,
+            "statusMessage": "Saving memory..."
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "memory-manager",
+  "description": "Cross-machine memory for Claude Code. Keys project memory by git remote instead of filesystem path, so it travels between machines.",
+  "owner": {
+    "name": "Anton Rodriguez",
+    "url": "https://github.com/Arlezz"
+  },
+  "plugins": [
+    {
+      "name": "memory-manager",
+      "description": "Sync Claude Code memory across machines: project memory in the repo, personal memory in a private repo.",
+      "source": "./plugin",
+      "category": "productivity"
+    }
+  ]
+}

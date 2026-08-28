@@ -1,3 +1,10 @@
 /dist/
 /memory-manager
 /memory-manager.exe
+
+# Binaries staged into the npm packages by scripts/publish-npm.sh. The
+# package.json files are versioned; the binaries they ship are build output.
+/npm/*/memory-manager
+/npm/*/memory-manager.exe
+
+node_modules/

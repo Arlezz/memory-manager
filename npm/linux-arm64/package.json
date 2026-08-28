@@ -1,0 +1,22 @@
+{
+  "name": "@memory-manager/linux-arm64",
+  "version": "0.1.0",
+  "description": "memory-manager binary for Linux arm64",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Arlezz/memory-manager.git"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "bin": {
+    "memory-manager": "memory-manager"
+  },
+  "files": [
+    "memory-manager"
+  ]
+}

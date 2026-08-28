@@ -70,24 +70,49 @@ personal layer ──┴─► merged ┴──► diff ─┤   work tree, NOT 
 
 ## Install
 
-```sh
-# macOS / Linux
-./scripts/install.sh
+**1. The binary.**
 
-# Windows
-pwsh -File scripts/install.ps1
+```sh
+npm install -g memory-manager-cli
 ```
 
-Both merge the SessionStart and SessionEnd hooks into `~/.claude/settings.json` and back the
-file up first; existing hooks and settings are preserved, and re-running is idempotent.
+One launcher package pulls the single per-platform binary that matches your machine. No Go
+toolchain needed. Alternatives: `./scripts/install.sh` / `pwsh -File scripts/install.ps1` download
+from GitHub releases, and `go install github.com/Arlezz/memory-manager/cmd/memory-manager@latest`
+builds from source.
 
-Then:
+**2. The plugin**, which wires the hooks:
+
+```
+/plugin marketplace add Arlezz/memory-manager
+/plugin install memory-manager
+```
+
+The plugin declares its own `SessionStart` and `SessionEnd` hooks, so **your `settings.json` is
+never touched**. It also adds `/memory-setup`, `/memory-status`, `/memory-sync`, `/memory-push` and
+`/memory-migrate`.
+
+If you would rather not use a plugin, the install scripts still merge the two hooks into
+`~/.claude/settings.json` directly — they back the file up first, preserve every other setting and
+hook, and are idempotent. The plugin is preferred because it avoids editing that file at all.
+
+**3. Point it at your private memory repo, and adopt what you already have:**
 
 ```sh
 memory-manager config -personal-repo git@github.com:you/claude-memory.git
 memory-manager migrate           # review the plan
 memory-manager migrate -apply    # adopt what is already on disk
 ```
+
+An empty repository you just created works: there is no branch to clone yet, and the first run
+handles that.
+
+## Documentation
+
+- [docs/how-it-works.md](docs/how-it-works.md) — a walkthrough of what happens on disk, and the
+  cases you will actually hit
+- [docs/architecture.md](docs/architecture.md) — the design and the reasoning behind each decision
+- [docs/security.md](docs/security.md) — threat model, what it protects, and the gaps it knows about
 
 ## Design notes
 
@@ -138,6 +163,37 @@ the largest source of bugs in the tool.
 
 **Zero third-party dependencies.** The frontmatter parser covers only the subset of YAML the
 memory format uses, and reports anything richer instead of guessing.
+
+The reasoning behind each of these is in [docs/architecture.md](docs/architecture.md).
+
+## Compatibility with claude-sync
+
+[claude-sync](https://github.com/tawanorg/claude-sync) solves a neighbouring problem: encrypted
+backup of your whole `~/.claude` — transcripts, plans, tasks, history, settings — to object storage.
+It diagnoses the same root cause (Claude Code indexes by absolute path) and answers it differently:
+it keeps the path as the key and makes the prefix portable with a `${HOME}` token, plus a manual
+`path_map` for any other layout difference.
+
+The two are complementary. Use claude-sync for conversation history and this for memory.
+
+**But they overlap on disk, and you have to exclude two paths if you run both.** claude-sync syncs
+`~/.claude/projects/` wholesale, and this tool's merged output lives at
+`~/.claude/projects/<mangled>/memory/`. Left alone, that means:
+
+- claude-sync would sync the *merged* directory instead of the layers, keyed by path — reintroducing
+  the problem this tool exists to fix
+- on a simultaneous change it writes the remote version as `<name>.md.conflict.<timestamp>`, which
+  this tool's `sync` would then treat as an untracked local memory and list in `MEMORY.md`
+- `~/.claude/memory-manager/state/*.json` holds **absolute paths** for the machine that wrote it,
+  so syncing manifests between machines makes them wrong
+
+Exclude both in `~/.claude-sync/config.yaml`:
+
+```yaml
+exclude:
+  - "projects/*/memory/**"
+  - "memory-manager/**"
+```
 
 ## Development
 

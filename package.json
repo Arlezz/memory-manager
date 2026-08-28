@@ -1,0 +1,41 @@
+{
+  "name": "memory-manager-cli",
+  "version": "0.1.0",
+  "description": "Cross-machine memory for Claude Code: keys project memory by git remote instead of filesystem path, so it travels between machines",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "memory",
+    "sync",
+    "cli"
+  ],
+  "homepage": "https://github.com/Arlezz/memory-manager#readme",
+  "bugs": {
+    "url": "https://github.com/Arlezz/memory-manager/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Arlezz/memory-manager.git"
+  },
+  "license": "MIT",
+  "author": "Anton Rodriguez",
+  "bin": {
+    "memory-manager": "bin/memory-manager.js"
+  },
+  "files": [
+    "bin/memory-manager.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "@memory-manager/darwin-arm64": "0.1.0",
+    "@memory-manager/darwin-x64": "0.1.0",
+    "@memory-manager/linux-arm64": "0.1.0",
+    "@memory-manager/linux-x64": "0.1.0",
+    "@memory-manager/win32-arm64": "0.1.0",
+    "@memory-manager/win32-x64": "0.1.0"
+  }
+}
