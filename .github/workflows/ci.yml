@@ -1,0 +1,46 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    # All three targets, because this tool is mostly path handling and git
+    # invocation — exactly what differs between Windows and POSIX.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      # Several tests drive the real git binary. It is present on all three
+      # runners; this makes the dependency visible if that ever changes.
+      - name: Show git version
+        run: git --version
+
+      - name: Check formatting
+        # gofmt -l prints files that need formatting, so any output is a failure.
+        run: |
+          files=$(gofmt -l .)
+          if [ -n "$files" ]; then
+            echo "these files are not gofmt-clean:"
+            echo "$files"
+            exit 1
+          fi
+        shell: bash
+
+      - run: go vet ./...
+
+      - run: go test -race ./...
+
+      - name: Build
+        run: go build ./cmd/memory-manager

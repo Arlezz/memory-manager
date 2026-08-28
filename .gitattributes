@@ -1,0 +1,12 @@
+# Normalize to LF in the repository. A shell script checked out with CRLF fails
+# on Linux and macOS with "bad interpreter", which would break install.sh for
+# every non-Windows machine.
+* text=auto eol=lf
+
+# PowerShell is the exception: it is Windows-only here and expects CRLF.
+*.ps1 text eol=crlf
+
+# Never touch these.
+*.png binary
+*.jpg binary
+*.exe binary
