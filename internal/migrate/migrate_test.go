@@ -164,6 +164,8 @@ func TestPlanFileBlocksWithoutWorkTree(t *testing.T) {
 func TestPlanFileFlagsSecrets(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "leak.md")
+	// The prefix is split so that a scanner reading this file sees no token
+	// shape; the compiler still hands the classifier the whole value.
 	body := "---\nname: leak\ndescription: has a token\nmetadata:\n  type: project\n---\n\nglpat-" + "FAKEfake1234567890ab\n"
 	if err := os.WriteFile(src, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
@@ -184,7 +186,7 @@ func TestPlanFileFlagsSecrets(t *testing.T) {
 func TestApplySkipsSecretsByDefault(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "leak.md")
-	if err := os.WriteFile(src, []byte("token glpat-" + "FAKEfake1234567890ab\n"), 0o644); err != nil {
+	if err := os.WriteFile(src, []byte("token glpat-"+"FAKEfake1234567890ab\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// The action is built through the real classifier so the Secrets field is

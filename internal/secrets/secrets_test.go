@@ -7,6 +7,10 @@ import (
 
 // Synthetic values only. A test file is committed, so a real credential here
 // would be the exact leak this package exists to prevent.
+//
+// The prefixes are split across a concatenation on purpose: a scanner reading
+// the file sees no token shape, while the compiler hands the detector under
+// test the whole value. Keep any new fixture in the same form.
 const (
 	fakeGitLabPAT = "glpat-" + "FAKEfake1234567890ab"
 	fakeGitLabTok = "GITLAB-FAKEfake1234567890"

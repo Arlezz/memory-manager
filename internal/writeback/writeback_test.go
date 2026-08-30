@@ -249,7 +249,7 @@ func TestBuildBlocksSecrets(t *testing.T) {
 	l := newLab(t)
 	mustMkdir(t, l.memoryDir())
 	mustWrite(t, filepath.Join(l.memoryDir(), "leak.md"),
-		"---\nname: leak\ndescription: has a token\nmetadata:\n  type: project\n---\n\nexport GITLAB_TOKEN=glpat-" + "FAKEfake1234567890ab\n")
+		"---\nname: leak\ndescription: has a token\nmetadata:\n  type: project\n---\n\nexport GITLAB_TOKEN=glpat-"+"FAKEfake1234567890ab\n")
 
 	a := findAction(t, l.build(), "leak.md")
 	if a.Blocked == "" {
