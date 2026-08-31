@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 4a902265-6735-48e3-8379-d9bfd8bb2e36
-  modified: 2026-08-31T02:34:38.028Z
+  modified: 2026-08-31T02:55:10.784Z
 ---
 
 State of [[memory-manager-goal]]. Anton's personal open-source actions live separately in [[memory-manager-open-actions]], which is deliberately kept out of this public tree.
@@ -31,7 +31,11 @@ GitHub push protection rejected the first push attempt over the synthetic `glpat
 
 **The hook path is verified as of 2026-08-30.** Both subcommands were run through `plugin/hooks/launch.js` exactly as the plugin declares them — from a neutral working directory, with `CLAUDE_PROJECT_DIR` set, resolving the binary from `~/.claude/memory-manager/bin/`. `sync` merged and correctly refused to overwrite two locally edited memories; `push` wrote 6 project memories into the work tree without committing them and pushed 3 personal ones to the private repo (`75a8aa1`). Both exited 0.
 
-**The marketplace install is verified for `sync` as of 2026-08-30.** The plugin was installed at user scope from the marketplace (commit `483023b`, `installPath` under `plugins/cache/memory-manager/`) and a new session was started. The SessionStart hook fired: `state/github.com__arlezz__memory-manager.json` and `MEMORY.md` were both rewritten at session start, and the merged index carried personal-layer memories that exist nowhere in the work tree. 13 memories, 7 personal and 6 project. `push` at a genuine SessionEnd is the last untested path.
+**The marketplace install is verified for `sync` as of 2026-08-30.** The plugin was installed at user scope from the marketplace (commit `483023b`, `installPath` under `plugins/cache/memory-manager/`) and a new session was started. The SessionStart hook fired: `state/github.com__arlezz__memory-manager.json` and `MEMORY.md` were both rewritten at session start, and the merged index carried personal-layer memories that exist nowhere in the work tree. 13 memories, 7 personal and 6 project.
+
+**`push` at a genuine SessionEnd fires, does the work, and then gets cut off before `git push`.** Tested 2026-08-30 with a real headless session (`claude -p`, CLI 2.1.251) in the project directory, with one new personal memory pending. Claude Code printed `SessionEnd hook [node "${CLAUDE_PLUGIN_ROOT}/hooks/launch.js" push] failed: Hook cancelled`, yet the binary had already copied the memory into the personal layer and committed it (`0eff574`, "memory: 1 written"). The repo was left **ahead 1** — the commit existed locally and the remote never received it, so a second machine would have seen nothing. The commit had to be pushed by hand. The 60s timeout was not the cause; the whole session lasted seconds. The cancellation lands on the last and slowest step, the network one.
+
+This is the dangerous shape for a sync tool: the local side looks complete, `status` reports nothing pending, and the memory is still stranded. Whether an interactive session exit is cancelled the same way as `-p` is not yet known — that is the one remaining check, and it needs a pending personal memory at exit.
 
 ## Next design question, not yet opened
 
