@@ -382,6 +382,12 @@ func printSyncSummary(w io.Writer, res sync.Result, dryRun, quiet bool) {
 		fmt.Fprintf(w, ", %d local edit(s) preserved", res.Preserved)
 	}
 	fmt.Fprintln(w)
+	// Printed even under -quiet: this is memory that exists on one machine only,
+	// and session start is the one moment the user is reading this output.
+	if res.PersonalUnpushed > 0 {
+		fmt.Fprintf(w, "personal layer: %s committed but not pushed; run \"memory-manager push\"\n",
+			commitCount(res.PersonalUnpushed))
+	}
 	if !quiet {
 		fmt.Fprintln(w, res.MemoryDir)
 	}
@@ -397,11 +403,30 @@ func cmdStatus(args []string) error {
 		return err
 	}
 	printWriteback(plan)
-	if plan.Empty() {
+	if plan.Settled() {
+		// Silence used to be the answer here, which reads exactly like a status
+		// that never ran — and it read that way while a commit sat unpushed.
+		fmt.Println("memory: nothing waiting")
 		return nil
+	}
+	if plan.PersonalUnpushed > 0 {
+		if !plan.Empty() {
+			fmt.Println()
+		}
+		fmt.Printf("personal layer: %s committed but not pushed, from a run that stopped before the network step\n",
+			commitCount(plan.PersonalUnpushed))
 	}
 	fmt.Println("\nRun \"memory-manager push\" to send these to their layers.")
 	return nil
+}
+
+// commitCount renders a commit count with its noun, so the one-commit case —
+// the usual one — reads as a sentence.
+func commitCount(n int) string {
+	if n == 1 {
+		return "1 commit"
+	}
+	return fmt.Sprintf("%d commits", n)
 }
 
 func cmdPush(args []string) error {
@@ -429,7 +454,7 @@ func cmdPush(args []string) error {
 	if err != nil {
 		return err
 	}
-	if plan.Empty() {
+	if plan.Settled() {
 		// Same reasoning as the sync summary: an empty push still reports that
 		// it ran. The warnings matter most here, because a layer that went
 		// missing is one of the reasons a plan comes back empty.
@@ -439,7 +464,15 @@ func cmdPush(args []string) error {
 		fmt.Println("memory: nothing to push")
 		return nil
 	}
-	if !*quiet {
+	if plan.Empty() {
+		// No file to write, so the plan renders as nothing. Say why we are still
+		// here, or the summary below looks like it pushed out of thin air.
+		for _, w := range plan.Warnings {
+			fmt.Fprintln(os.Stderr, "memory-manager:", w)
+		}
+		fmt.Printf("memory: nothing new to write; %s waiting unpushed in the personal layer\n",
+			commitCount(plan.PersonalUnpushed))
+	} else if !*quiet {
 		printWriteback(plan)
 	}
 

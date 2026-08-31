@@ -80,12 +80,24 @@ type Plan struct {
 	ProjectRoot string
 	// Actions is the work to do, sorted by file name.
 	Actions []Action
+	// PersonalUnpushed counts commits already in the personal clone that the
+	// remote has not seen. They are not actions — there is nothing left to
+	// write — but they are memory that has not travelled yet.
+	PersonalUnpushed int
 	// Warnings are plan-level problems worth showing the user.
 	Warnings []string
 }
 
-// Empty reports whether there is nothing to do.
+// Empty reports whether there is no file to write back.
 func (p Plan) Empty() bool { return len(p.Actions) == 0 }
+
+// Settled reports whether nothing at all is waiting: no file to write back and
+// no commit stranded in the personal clone.
+//
+// Empty is not enough on its own. A run that committed and then died before the
+// push leaves an empty plan behind, and treating that as finished is how memory
+// silently stops reaching the other machine.
+func (p Plan) Settled() bool { return p.Empty() && p.PersonalUnpushed == 0 }
 
 // Counts returns how many actions of each change kind the plan holds.
 func (p Plan) Counts() map[Change]int {
@@ -145,6 +157,12 @@ func Build(dir string) (Plan, error) {
 		}
 		if repo.Present {
 			plan.PersonalRoot = repo.Path
+			if n, aheadErr := repo.Unpushed(); aheadErr != nil {
+				plan.Warnings = append(plan.Warnings,
+					fmt.Sprintf("personal layer: cannot tell whether it is pushed: %v", aheadErr))
+			} else {
+				plan.PersonalUnpushed = n
+			}
 		}
 	}
 
@@ -366,12 +384,41 @@ func Apply(plan Plan, opts Options) (Result, error) {
 		res.Warnings = append(res.Warnings, fmt.Sprintf("manifest not saved: %v", err))
 	}
 
-	if len(personalPaths) > 0 {
+	switch {
+	case len(personalPaths) > 0:
 		if err := commitAndPush(plan, personalPaths, opts, &res); err != nil {
+			return res, err
+		}
+	case plan.PersonalUnpushed > 0 && !opts.NoPush:
+		// Nothing to write, but an earlier run committed and then lost the
+		// network step. Finishing it here is what makes the failure survivable:
+		// otherwise the plan stays empty forever and the commit never leaves.
+		if err := pushOnly(&res); err != nil {
 			return res, err
 		}
 	}
 	return res, nil
+}
+
+// pushOnly publishes commits an earlier run left behind, without writing or
+// committing anything first.
+func pushOnly(res *Result) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	repo, _, err := personal.Open(cfg)
+	if err != nil {
+		return err
+	}
+	if !repo.Present {
+		return errors.New("personal layer is not available; nothing was pushed")
+	}
+	if err := repo.Push(); err != nil {
+		return err
+	}
+	res.Pushed = true
+	return nil
 }
 
 // commitAndPush finishes the personal layer. A failure here is returned rather

@@ -126,6 +126,14 @@ memory:   C:\Users\anton\.claude\projects\C--Users-anton-…-ORBIT-X-core\memory
   removed  http-package.md               project     from .../ORBIT-X_core/.claude/memory/http-package.md
 ```
 
+When nothing is waiting it says so, in one line:
+
+```
+memory: nothing waiting
+```
+
+That line matters. Silence would read the same as a `status` that never ran.
+
 Or `/memory-status` inside the session.
 
 ### 3. Session end
@@ -208,6 +216,25 @@ resolve it by hand in the personal clone
 
 Nothing was published and no rebase is left in progress. Fix it in
 `~/.claude/memory-manager/personal`, commit, and push again.
+
+### A write-back that was cut off before its push
+
+`push` commits the personal layer and then pushes it. Claude Code can cancel the `SessionEnd` hook
+between those two steps, and the cancellation lands on the network call because it is the slowest
+one. What is left behind is the worst shape a sync tool has: the files are in the clone, the
+manifest agrees with the disk, nothing is pending — and no other machine has the memory.
+
+The commit count against the remote is the only thing that still knows, so it is reported wherever
+you are already looking:
+
+```
+memory: github.com/orbit-dev/orbit-x_core — 6 project, 0 personal/global, 8 personal/project
+personal layer: 1 commit committed but not pushed; run "memory-manager push"
+```
+
+That line survives `-quiet`, so it reaches you at session start. `status` says the same thing, and
+the next `push` publishes the commit even though it has nothing new to write — the stranded state
+heals itself on the next run rather than waiting for you to notice.
 
 ### A credential finding
 

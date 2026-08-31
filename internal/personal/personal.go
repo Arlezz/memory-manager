@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/Arlezz/memory-manager/internal/config"
@@ -271,6 +272,36 @@ func (r Repo) Push() error {
 		return err
 	}
 	return nil
+}
+
+// Unpushed reports how many commits the clone holds that its remote-tracking
+// branch does not.
+//
+// The write-back hook can be cancelled between the commit and the push, which
+// strands memory in a clone that looks finished: the files are where they
+// belong, the manifest agrees with the disk, and nothing but this count says
+// the remote never got them.
+//
+// It compares local refs only. No network means it is honest about the last
+// known remote rather than blocking, and cheap enough to run on every status.
+func (r Repo) Unpushed() (int, error) {
+	if !r.Present {
+		return 0, nil
+	}
+	// No upstream yet — a clone of a repository that has never been pushed to —
+	// leaves nothing to compare against.
+	if _, err := gitx.Run(r.Path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"); err != nil {
+		return 0, nil
+	}
+	out, err := gitx.Run(r.Path, "rev-list", "--count", "@{u}..HEAD")
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.Atoi(out)
+	if err != nil {
+		return 0, fmt.Errorf("unreadable commit count %q from git rev-list: %w", out, err)
+	}
+	return n, nil
 }
 
 func nonEmptyLines(s string) []string {

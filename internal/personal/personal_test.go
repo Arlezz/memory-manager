@@ -251,6 +251,83 @@ func TestPush(t *testing.T) {
 	}
 }
 
+// TestUnpushedCountsStrandedCommits is the write-back hook being cancelled
+// between its commit and its push: the clone looks finished and only the commit
+// count says the memory never left the machine.
+func TestUnpushedCountsStrandedCommits(t *testing.T) {
+	f := newFixture(t)
+	repo, _, err := Open(f.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if n, err := repo.Unpushed(); err != nil || n != 0 {
+		t.Fatalf("a fresh clone reports %d, %v; want 0, nil", n, err)
+	}
+
+	writeMemory(t, filepath.Join(repo.Path, "global", "stranded.md"), "never reached the remote")
+	if err := repo.Commit([]string{"global/stranded.md"}, "memory: 1 written"); err != nil {
+		t.Fatal(err)
+	}
+	writeMemory(t, filepath.Join(repo.Path, "global", "also-stranded.md"), "nor did this one")
+	if err := repo.Commit([]string{"global/also-stranded.md"}, "memory: 1 written"); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := repo.Unpushed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("Unpushed = %d, want 2", n)
+	}
+
+	if err := repo.Push(); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := repo.Unpushed(); err != nil || n != 0 {
+		t.Errorf("after a push Unpushed = %d, %v; want 0, nil", n, err)
+	}
+}
+
+// TestUnpushedWithoutUpstream covers the very first run, where there is no
+// remote-tracking branch to compare against. Reporting an error there would
+// turn a normal first session into a warning.
+func TestUnpushedWithoutUpstream(t *testing.T) {
+	requireGit(t)
+	root := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(root, "claude"))
+
+	bare := filepath.Join(root, "empty.git")
+	if _, err := gitx.Run("", "init", "--bare", "--quiet", "--initial-branch=main", bare); err != nil {
+		t.Fatal(err)
+	}
+	repo, warn, err := Open(config.Config{PersonalRepo: bare, PersonalBranch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !repo.Present {
+		t.Fatalf("clone failed: %s", warn)
+	}
+
+	writeMemory(t, filepath.Join(repo.Path, "global", "first.md"), "the very first memory")
+	if err := repo.Commit([]string{"global/first.md"}, "memory: 1 written"); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := repo.Unpushed(); err != nil || n != 0 {
+		t.Errorf("Unpushed = %d, %v; want 0, nil with no upstream", n, err)
+	}
+}
+
+// TestUnpushedWithoutCloneIsZero keeps the absent personal layer quiet: it is
+// already reported as a warning of its own and must not also look unpushed.
+func TestUnpushedWithoutCloneIsZero(t *testing.T) {
+	n, err := Repo{Path: filepath.Join(t.TempDir(), "nothing")}.Unpushed()
+	if err != nil || n != 0 {
+		t.Errorf("Unpushed = %d, %v; want 0, nil", n, err)
+	}
+}
+
 // TestPushRebasesWhenRemoteMoved is the everyday case for two machines: one fact
 // per file means the rebase almost always succeeds without help.
 func TestPushRebasesWhenRemoteMoved(t *testing.T) {

@@ -64,6 +64,39 @@ func TestSyncSummarySilentWhenDegraded(t *testing.T) {
 	}
 }
 
+// TestSyncSummaryReportsUnpushedPersonalMemory covers the failure that hides
+// best: the write-back hook committed and was cancelled before its push, so
+// every local check looks finished while the memory has reached no other
+// machine. Session start is the only place the user will see it, and the hook
+// runs quiet, so the line has to survive -quiet like the summary does.
+func TestSyncSummaryReportsUnpushedPersonalMemory(t *testing.T) {
+	res := syncResult()
+	res.PersonalUnpushed = 1
+
+	for _, quiet := range []bool{true, false} {
+		var out bytes.Buffer
+		printSyncSummary(&out, res, false, quiet)
+
+		got := out.String()
+		if !strings.Contains(got, "1 commit committed but not pushed") {
+			t.Errorf("sync (quiet=%v) did not report the unpushed commit:\n%s", quiet, got)
+		}
+		if !strings.Contains(got, "memory-manager push") {
+			t.Errorf("sync (quiet=%v) did not say how to fix it:\n%s", quiet, got)
+		}
+	}
+}
+
+// TestSyncSummarySilentWhenNothingUnpushed keeps the normal case to one line.
+func TestSyncSummarySilentWhenNothingUnpushed(t *testing.T) {
+	var out bytes.Buffer
+	printSyncSummary(&out, syncResult(), false, true)
+
+	if strings.Contains(out.String(), "not pushed") {
+		t.Errorf("a fully pushed layer was reported as unpushed:\n%s", out.String())
+	}
+}
+
 func TestSyncSummaryReportsRemovalsAndPreservedEdits(t *testing.T) {
 	res := syncResult()
 	res.Removed = 2

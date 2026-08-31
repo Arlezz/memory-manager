@@ -2,12 +2,14 @@ package writeback
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Arlezz/memory-manager/internal/claudedir"
 	"github.com/Arlezz/memory-manager/internal/config"
+	"github.com/Arlezz/memory-manager/internal/gitx"
 	"github.com/Arlezz/memory-manager/internal/identity"
 	"github.com/Arlezz/memory-manager/internal/layer"
 	"github.com/Arlezz/memory-manager/internal/state"
@@ -378,6 +380,109 @@ func TestBuildWithoutIdentityFails(t *testing.T) {
 	if !strings.Contains(err.Error(), "memory-manager init") {
 		t.Errorf("error does not point at the fix: %v", err)
 	}
+}
+
+// realClone swaps the stand-in personal directory for an actual clone of a bare
+// repository, for the tests where git has to mean something. It returns the
+// bare repo so a test can assert what the remote ended up with.
+func (l *lab) realClone() string {
+	l.t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		l.t.Skip("git not on PATH")
+	}
+
+	bare := filepath.Join(l.t.TempDir(), "personal.git")
+	if _, err := gitx.Run("", "init", "--bare", "--quiet", "--initial-branch=main", bare); err != nil {
+		l.t.Fatal(err)
+	}
+	// A clone of a branchless repository has no upstream at all, and that case
+	// is covered elsewhere; give the remote a commit so this one has one.
+	seed := filepath.Join(l.t.TempDir(), "seed")
+	if _, err := gitx.Run("", "clone", "--quiet", bare, seed); err != nil {
+		l.t.Fatal(err)
+	}
+	mustWrite(l.t, filepath.Join(seed, "global", "seeded.md"), memoryFile("seeded.md", "user", "seeded"))
+	gitCommitAll(l.t, seed, "seed")
+	gitRun(l.t, seed, "push", "--quiet", "origin", "HEAD:refs/heads/main")
+
+	if err := os.RemoveAll(l.personalDir); err != nil {
+		l.t.Fatal(err)
+	}
+	if _, err := gitx.Run("", "clone", "--quiet", "--branch", "main", bare, l.personalDir); err != nil {
+		l.t.Fatal(err)
+	}
+	mustMkdir(l.t, filepath.Join(l.personalDir, "projects", slug))
+	if err := config.Save(config.Config{PersonalRepo: bare, PersonalBranch: "main"}); err != nil {
+		l.t.Fatal(err)
+	}
+	return bare
+}
+
+// TestApplyPushesACommitAnEarlierRunStranded is the SessionEnd hook being
+// cancelled after its commit but before its push. Nothing is left to write, so
+// the plan is empty; only publishing what is already committed gets the memory
+// off this machine.
+func TestApplyPushesACommitAnEarlierRunStranded(t *testing.T) {
+	l := newLab(t)
+	bare := l.realClone()
+
+	// The cancelled run's leftovers: committed in the clone, and known to the
+	// manifest, so nothing on disk looks pending.
+	mustWrite(t, filepath.Join(l.personalDir, "projects", slug, "stranded.md"),
+		memoryFile("stranded.md", "feedback", "committed, never pushed"))
+	gitCommitAll(t, l.personalDir, "memory: 1 written")
+	if _, err := sync.Run(sync.Options{Dir: l.projectDir}); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+
+	plan := l.build()
+	if !plan.Empty() {
+		t.Fatalf("expected no file to write back, got %+v", plan.Actions)
+	}
+	if plan.PersonalUnpushed != 1 {
+		t.Fatalf("PersonalUnpushed = %d, want 1", plan.PersonalUnpushed)
+	}
+	if plan.Settled() {
+		t.Error("Settled reported nothing waiting while a commit sat unpushed")
+	}
+
+	// -no-push must still mean no push, even down this path.
+	if res, err := Apply(plan, Options{NoPush: true}); err != nil {
+		t.Fatalf("Apply with NoPush: %v", err)
+	} else if res.Pushed {
+		t.Error("NoPush pushed anyway")
+	}
+
+	res, err := Apply(plan, Options{})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if !res.Pushed {
+		t.Error("the stranded commit was not pushed")
+	}
+	remote, err := gitx.Run(bare, "ls-tree", "-r", "--name-only", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(remote, "stranded.md") {
+		t.Errorf("the remote still does not have the memory: %q", remote)
+	}
+}
+
+func gitRun(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	if _, err := gitx.Run(dir, args...); err != nil {
+		t.Fatalf("git %s: %v", strings.Join(args, " "), err)
+	}
+}
+
+// gitCommitAll commits with an explicit identity, so the test does not depend on
+// a global git config being present.
+func gitCommitAll(t *testing.T, dir, message string) {
+	t.Helper()
+	gitRun(t, dir, "add", "-A")
+	gitRun(t, dir, "-c", "user.email=test@example.com", "-c", "user.name=test",
+		"commit", "--quiet", "-m", message)
 }
 
 func memoryFile(base, typ, desc string) string {

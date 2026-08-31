@@ -38,6 +38,11 @@ type Result struct {
 	// Preserved counts local edits that were not overwritten because they have
 	// not been pushed back to their layer yet.
 	Preserved int
+	// PersonalUnpushed counts commits sitting in the personal clone that the
+	// remote has not seen. Session start is where this has to surface: it is
+	// the one moment the user is looking, and a stranded commit is invisible
+	// everywhere else.
+	PersonalUnpushed int
 	// Warnings are non-fatal problems worth showing the user. A silent failure
 	// here means working for weeks against stale memory without knowing.
 	Warnings []string
@@ -187,6 +192,14 @@ func Run(opts Options) (Result, error) {
 		}
 		if repo.Present {
 			personalAvailable = true
+			// Measured after the pull, so the remote-tracking ref this compares
+			// against is as fresh as the network allowed.
+			if n, aheadErr := repo.Unpushed(); aheadErr != nil {
+				res.Warnings = append(res.Warnings,
+					fmt.Sprintf("personal layer: cannot tell whether it is pushed: %v", aheadErr))
+			} else {
+				res.PersonalUnpushed = n
+			}
 			if globalMemories, err = layer.Read(layer.PersonalPath(repo.Path, "")); err != nil {
 				res.Warnings = append(res.Warnings, fmt.Sprintf("personal global layer unreadable: %v", err))
 			}
