@@ -13,6 +13,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -325,7 +326,7 @@ func printPlan(plan migrate.Plan) {
 func cmdSync(args []string) error {
 	fs := flag.NewFlagSet("sync", flag.ExitOnError)
 	dryRun := fs.Bool("dry-run", false, "report what would change without writing")
-	quiet := fs.Bool("quiet", false, "print only warnings; for use as a hook")
+	quiet := fs.Bool("quiet", false, "print only the summary and warnings; for use as a hook")
 	var rest []string
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		rest = args[1:]
@@ -346,27 +347,44 @@ func cmdSync(args []string) error {
 		return err
 	}
 
-	// The summary goes to stdout and the warnings to stderr, so a hook can stay
-	// quiet on success while a real problem is still visible.
-	if !*quiet && !res.Degraded {
-		prefix := ""
-		if *dryRun {
-			prefix = "[dry-run] "
-		}
-		fmt.Printf("%smemory: %s — %d project, %d personal/global, %d personal/project",
-			prefix, res.Identity.Canonical, res.FromProject, res.FromPersonalGlobal, res.FromPersonalProject)
-		if res.Removed > 0 {
-			fmt.Printf(", %d removed", res.Removed)
-		}
-		if res.Preserved > 0 {
-			fmt.Printf(", %d local edit(s) preserved", res.Preserved)
-		}
-		fmt.Printf("\n%s\n", res.MemoryDir)
-	}
+	printSyncSummary(os.Stdout, res, *dryRun, *quiet)
 	for _, w := range res.Warnings {
 		fmt.Fprintln(os.Stderr, "memory-manager:", w)
 	}
 	return nil
+}
+
+// printSyncSummary renders what a sync did.
+//
+// The summary line is printed even under -quiet, so that silence from the hook
+// means the hook did not run. A sync that reports nothing on success is
+// indistinguishable from one that never fired, and this tool's worst failure is
+// working for weeks out of date without saying so. -quiet trims the detail
+// below the line, not the fact that a sync happened.
+//
+// A degraded run prints nothing here and speaks through its warnings instead:
+// its counts are partial, and on their own they would read like a complete
+// sync.
+func printSyncSummary(w io.Writer, res sync.Result, dryRun, quiet bool) {
+	if res.Degraded {
+		return
+	}
+	prefix := ""
+	if dryRun {
+		prefix = "[dry-run] "
+	}
+	fmt.Fprintf(w, "%smemory: %s — %d project, %d personal/global, %d personal/project",
+		prefix, res.Identity.Canonical, res.FromProject, res.FromPersonalGlobal, res.FromPersonalProject)
+	if res.Removed > 0 {
+		fmt.Fprintf(w, ", %d removed", res.Removed)
+	}
+	if res.Preserved > 0 {
+		fmt.Fprintf(w, ", %d local edit(s) preserved", res.Preserved)
+	}
+	fmt.Fprintln(w)
+	if !quiet {
+		fmt.Fprintln(w, res.MemoryDir)
+	}
 }
 
 func cmdStatus(args []string) error {
@@ -412,12 +430,13 @@ func cmdPush(args []string) error {
 		return err
 	}
 	if plan.Empty() {
-		if !*quiet {
-			for _, w := range plan.Warnings {
-				fmt.Fprintln(os.Stderr, "memory-manager:", w)
-			}
-			fmt.Println("memory: nothing to push")
+		// Same reasoning as the sync summary: an empty push still reports that
+		// it ran. The warnings matter most here, because a layer that went
+		// missing is one of the reasons a plan comes back empty.
+		for _, w := range plan.Warnings {
+			fmt.Fprintln(os.Stderr, "memory-manager:", w)
 		}
+		fmt.Println("memory: nothing to push")
 		return nil
 	}
 	if !*quiet {
