@@ -24,8 +24,12 @@ session continues on local memory.
 The plugin is distributed as source, so it cannot carry a per-platform binary. Install one:
 
 ```sh
-npm install -g memory-manager-cli
+go install github.com/Arlezz/memory-manager/cmd/memory-manager@latest
 ```
+
+Needs Go 1.23+. Until the first release is tagged this is the only install that works — the npm
+package (`memory-manager-cli`) is not published yet, and the install scripts download from GitHub
+releases that do not exist. Both arrive with the first tag.
 
 The hook launcher looks for it in this order: `$MEMORY_MANAGER_BIN`,
 `~/.claude/memory-manager/bin/`, then `PATH`. If it finds none, it says so and gets out of the way.

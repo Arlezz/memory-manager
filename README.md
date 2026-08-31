@@ -75,13 +75,16 @@ personal layer ──┴─► merged ┴──► diff ─┤   work tree, NOT 
 **1. The binary.**
 
 ```sh
-npm install -g memory-manager-cli
+go install github.com/Arlezz/memory-manager/cmd/memory-manager@latest
 ```
 
-One launcher package pulls the single per-platform binary that matches your machine. No Go
-toolchain needed. Alternatives: `./scripts/install.sh` / `pwsh -File scripts/install.ps1` download
-from GitHub releases, and `go install github.com/Arlezz/memory-manager/cmd/memory-manager@latest`
-builds from source.
+Needs Go 1.23+, and your Go bin directory on `PATH` so the plugin's hook launcher can find the
+result. There are no third-party dependencies to fetch.
+
+> **Until the first release is tagged, this is the only install that works.** `npm install -g
+> memory-manager-cli` and the `scripts/install.sh` / `pwsh -File scripts/install.ps1` downloads both
+> resolve against artifacts that do not exist yet: the npm package is unpublished and there are no
+> GitHub releases. Both become available with the first tag; neither needs a Go toolchain.
 
 **2. The plugin**, which wires the hooks:
 

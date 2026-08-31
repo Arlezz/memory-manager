@@ -6,9 +6,13 @@ A walkthrough of what actually happens on disk. For the reasoning behind these c
 ## Setup, once per machine
 
 ```sh
-npm install -g memory-manager-cli
+go install github.com/Arlezz/memory-manager/cmd/memory-manager@latest
 memory-manager config -personal-repo git@github.com:you/claude-memory.git
 ```
+
+`go install` needs Go 1.23+ and your Go bin directory on `PATH`. It is the only install that works
+until the first release is tagged; `npm install -g memory-manager-cli` and the install scripts both
+arrive with that tag.
 
 The personal repo can be empty — a repository you just created on GitHub has no branches at all,
 and the first run handles that.
