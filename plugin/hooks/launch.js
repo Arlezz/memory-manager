@@ -35,7 +35,7 @@ function claudeRoot() {
  *
  * The order matches how people actually end up with it: an explicit override
  * first, then the location the install script writes to, then anything already
- * on PATH (which covers the npm install).
+ * on PATH, which covers both "go install" and the npm package once it ships.
  */
 function findBinary() {
   const override = process.env.MEMORY_MANAGER_BIN;
@@ -77,9 +77,14 @@ function main() {
 
   const bin = findBinary();
   if (!bin) {
+    // Name only an install that works right now. Until the first release is
+    // tagged there is no npm package and no downloadable build, and sending a
+    // new user at one they cannot install wastes the one line they will read.
     process.stderr.write(
       "memory-manager: binary not found, memory was not synced. " +
-        "Install it with \"npm i -g memory-manager-cli\", or set MEMORY_MANAGER_BIN.\n"
+        "Install it with \"go install github.com/Arlezz/memory-manager/cmd/memory-manager@latest\" " +
+        "(Go 1.23+, with the Go bin directory on PATH), " +
+        "or set MEMORY_MANAGER_BIN to a binary you already have.\n"
     );
     process.exit(0);
   }
