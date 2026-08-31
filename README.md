@@ -118,6 +118,8 @@ handles that.
   cases you will actually hit
 - [docs/architecture.md](docs/architecture.md) — the design and the reasoning behind each decision
 - [docs/security.md](docs/security.md) — threat model, what it protects, and the gaps it knows about
+- [docs/proposals/sync-scope.md](docs/proposals/sync-scope.md) — proposed: which other parts of
+  `~/.claude` are worth syncing over git, and which are not
 
 ## Design notes
 
