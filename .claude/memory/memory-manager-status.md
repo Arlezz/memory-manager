@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 4a902265-6735-48e3-8379-d9bfd8bb2e36
-  modified: 2026-08-31T02:55:10.784Z
+  modified: 2026-08-31T03:17:44.447Z
 ---
 
 State of [[memory-manager-goal]]. Anton's personal open-source actions live separately in [[memory-manager-open-actions]], which is deliberately kept out of this public tree.
@@ -35,7 +35,11 @@ GitHub push protection rejected the first push attempt over the synthetic `glpat
 
 **`push` at a genuine SessionEnd fires, does the work, and then gets cut off before `git push`.** Tested 2026-08-30 with a real headless session (`claude -p`, CLI 2.1.251) in the project directory, with one new personal memory pending. Claude Code printed `SessionEnd hook [node "${CLAUDE_PLUGIN_ROOT}/hooks/launch.js" push] failed: Hook cancelled`, yet the binary had already copied the memory into the personal layer and committed it (`0eff574`, "memory: 1 written"). The repo was left **ahead 1** — the commit existed locally and the remote never received it, so a second machine would have seen nothing. The commit had to be pushed by hand. The 60s timeout was not the cause; the whole session lasted seconds. The cancellation lands on the last and slowest step, the network one.
 
-This is the dangerous shape for a sync tool: the local side looks complete, `status` reports nothing pending, and the memory is still stranded. Whether an interactive session exit is cancelled the same way as `-p` is not yet known — that is the one remaining check, and it needs a pending personal memory at exit.
+This is the dangerous shape for a sync tool: the local side looks complete, `status` reports nothing pending, and the memory is still stranded. It happened a second time in ordinary use — `287df87`, found on 2026-08-30 only because the clone was inspected by hand.
+
+**The stranded commit is now detected and self-healing, as of `74bb55a` (2026-08-30).** `personal.Repo.Unpushed` counts commits the remote-tracking branch lacks, from local refs only. `writeback.Plan.Settled` splits "nothing to write" from "nothing waiting", and the callers that used `Empty` to decide they were done now use `Settled`. `Apply` gained a push-only path, so the next `push` publishes a stranded commit even with an empty plan instead of walking past it forever. The count prints in the sync summary at session start (surviving `-quiet`), in `status`, and in `push`; `status` also answers `memory: nothing waiting` instead of printing nothing. The binary installed at `~/.claude/memory-manager/bin/` was rebuilt at this commit.
+
+The cancellation itself is not fixed — it is Claude Code's, not this tool's. What changed is that it is now survivable. Whether an interactive session exit is cancelled the same way as `-p` is still unknown, and still needs a pending personal memory at exit to find out; it now matters much less.
 
 ## Next design question, not yet opened
 
