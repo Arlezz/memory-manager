@@ -87,6 +87,14 @@ var entropyCandidate = regexp.MustCompile(`[A-Za-z0-9+_\-=]{32,}`)
 // 6.0; prose, slugs and identifiers sit below 4.2.
 const entropyThreshold = 4.2
 
+// minAssignedValue is the shortest right-hand side of an assignment still worth
+// an entropy check.
+//
+// It is below the 32 the regexp demands of a bare token because the name has
+// already told us this is a value: "TOKEN=" is context a loose string does not
+// carry. Nothing shorter than this reads as a credential.
+const minAssignedValue = 20
+
 // scanEntropy catches token formats no prefix rule knows about.
 //
 // The filters below are all there to hold the false-positive rate near zero on
@@ -95,19 +103,46 @@ const entropyThreshold = 4.2
 func scanEntropy(line string, lineNo int) []Finding {
 	var out []Finding
 	for _, cand := range entropyCandidate.FindAllString(line, -1) {
-		if isHex(cand) || looksLikeIdentifier(cand) || !hasDigitAndLetter(cand) {
+		val := assignedValue(cand)
+		if isHex(val) || looksLikeIdentifier(val) || !hasDigitAndLetter(val) {
 			continue
 		}
-		if shannon(cand) < entropyThreshold {
+		if shannon(val) < entropyThreshold {
 			continue
 		}
 		out = append(out, Finding{
 			Rule:    "high-entropy string",
 			Line:    lineNo,
-			Excerpt: Mask(cand),
+			Excerpt: Mask(val),
 		})
 	}
 	return out
+}
+
+// assignedValue reduces "NAME=value" to the value, and returns anything else
+// unchanged.
+//
+// The name is not part of the secret, so it must not lend the candidate its
+// length or its entropy. It was doing both: "UV_INDEX_NOVAIA_USERNAME=oauth2
+// accesstoken" assigns a public constant, but scored as one 42-character token
+// it cleared both bars on the strength of the variable name alone. Four of the
+// corpus's 117 files were blocked from migrating that way, all false.
+//
+// Trailing "=" is stripped before looking for the separator, because base64
+// padding is not an assignment; the padding is kept on the value itself, which
+// is what the entropy check wants.
+func assignedValue(s string) string {
+	i := strings.Index(strings.TrimRight(s, "="), "=")
+	if i < 0 {
+		return s
+	}
+	value := s[i+1:]
+	if len(value) < minAssignedValue {
+		// Too short to be a credential. Returning the name would put its
+		// entropy back in play, so return nothing and let the filters drop it.
+		return ""
+	}
+	return value
 }
 
 // looksLikeIdentifier reports whether s decomposes into words, which makes it a

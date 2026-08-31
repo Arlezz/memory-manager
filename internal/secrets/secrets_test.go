@@ -108,6 +108,12 @@ func TestScanQuietOnObservedFalsePositives(t *testing.T) {
 		// An Alembic revision filename: a hex revision id followed by words.
 		"migrations/versions/f7b2c0a1d3e4_add_client_catalog_table.py",
 		"revision f7b2c0a1d3e4_add_client_catalog_table is the head",
+		// Artifact Registry's documented username is a public constant, and the
+		// password beside it is fetched at run time rather than written down.
+		// Scored whole, the variable name supplied the length and the entropy.
+		"export UV_INDEX_PRIVATE_USERNAME=oauth2accesstoken",
+		`export UV_INDEX_PRIVATE_PASSWORD="$(gcloud auth print-access-token)"`,
+		"UV_INDEX_PRIVATE_PASSWORD=${{ steps.gar-auth.outputs.access_token }}",
 	}
 	for _, line := range clean {
 		if found := Scan(line); len(found) > 0 {
@@ -125,6 +131,12 @@ func TestScanStillCatchesOpaqueTokens(t *testing.T) {
 		// The shape actually found in the corpus: an env var whose name ends in
 		// TOKEN, assigned an opaque value.
 		"export UV_INDEX_PRIVATE_TOKEN=7Kq2xZ9vB4nM1pL8sT3wY6rE5uI0oA",
+		// The value alone is under the 32 a bare token needs; the name is what
+		// makes it worth checking, and dropping the name must not drop this.
+		"API_KEY=9vB4nM1pL8sT3wY6rE5uI0",
+		// Base64 padding is not an assignment separator: trimming it wrongly
+		// would leave nothing to score.
+		"c3RhY2tvZmZha2VieXRlczEyMzQ1Njc4OTBhYmNkZWY=",
 	}
 	for _, line := range opaque {
 		if found := Scan(line); len(found) == 0 {
