@@ -424,3 +424,84 @@ func TestPushToEmptyRepository(t *testing.T) {
 		t.Error("the first push created no branch on the remote")
 	}
 }
+
+// TestPushRebasesWithNoGlobalGitIdentity is the regression test for a bug that
+// could only ever show up off the development machine: Commit passed an identity
+// per command but the rebase inside Push did not, so anywhere without a global
+// git identity — every CI runner, and any fresh machine — the rebase failed and
+// was then reported as a conflict that did not exist.
+func TestPushRebasesWithNoGlobalGitIdentity(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
+
+	f := newFixture(t)
+	repo, _, err := Open(f.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Another machine pushes first, so the rebase has something to replay onto.
+	other := filepath.Join(t.TempDir(), "other")
+	if _, err := gitx.Run("", "clone", "--quiet", f.bare, other); err != nil {
+		t.Fatal(err)
+	}
+	writeMemory(t, filepath.Join(other, "global", "from-laptop.md"), "written elsewhere")
+	commitAll(t, other, "from the laptop")
+	if _, err := gitx.Run(other, "push", "--quiet"); err != nil {
+		t.Fatal(err)
+	}
+
+	writeMemory(t, filepath.Join(repo.Path, "global", "from-desktop.md"), "written here")
+	if err := repo.Commit([]string{"global/from-desktop.md"}, "memory: 1 written"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := repo.Push(); err != nil {
+		t.Fatalf("Push must rebase with no git identity configured: %v", err)
+	}
+	remote, err := gitx.Run(f.bare, "ls-tree", "-r", "--name-only", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"from-laptop.md", "from-desktop.md"} {
+		if !strings.Contains(remote, want) {
+			t.Errorf("the remote lost %s: %q", want, remote)
+		}
+	}
+}
+
+// TestPushReportsUnreachableRemoteAsFailureNotConflict pins the distinction the
+// error types exist for. Push runs unattended from a SessionEnd hook, so calling
+// an unreachable remote a conflict sends the user looking for conflicting files
+// that were never there.
+func TestPushReportsUnreachableRemoteAsFailureNotConflict(t *testing.T) {
+	f := newFixture(t)
+	repo, _, err := Open(f.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	writeMemory(t, filepath.Join(repo.Path, "global", "note.md"), "written here")
+	if err := repo.Commit([]string{"global/note.md"}, "memory: 1 written"); err != nil {
+		t.Fatal(err)
+	}
+
+	// The upstream stays configured, so Push reaches the rebase and fails there.
+	gone := filepath.Join(t.TempDir(), "gone.git")
+	if _, err := gitx.Run(repo.Path, "remote", "set-url", "origin", gone); err != nil {
+		t.Fatal(err)
+	}
+
+	err = repo.Push()
+	if err == nil {
+		t.Fatal("Push succeeded against a remote that does not exist")
+	}
+	var conflict *ErrRebaseConflict
+	if errors.As(err, &conflict) {
+		t.Errorf("an unreachable remote was reported as a conflict: %v", err)
+	}
+	var failed *ErrRebaseFailed
+	if !errors.As(err, &failed) {
+		t.Errorf("error = %T (%v), want *ErrRebaseFailed", err, err)
+	}
+}

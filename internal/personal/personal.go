@@ -164,16 +164,29 @@ func (r Repo) Commit(paths []string, message string) error {
 		}
 	}
 
-	// Identity is set per-command so the tool works in a fresh clone on a machine
-	// with no global git identity, without writing to the user's git config.
 	// The pathspec keeps the commit to our files even if the user staged others.
-	args := []string{
-		"-c", "user.name=memory-manager",
-		"-c", "user.email=memory-manager@localhost",
-		"commit", "--quiet", "--only", "-m", message, "--",
-	}
+	args := withIdentity("commit", "--quiet", "--only", "-m", message, "--")
 	_, err := gitx.Run(r.Path, append(args, staged...)...)
 	return err
+}
+
+// gitIdentity is passed to every git command that writes a commit.
+//
+// It is set per-command so the tool works in a fresh clone on a machine with no
+// global git identity, without ever writing to the user's git config. Rebase
+// replays commits, so it needs this exactly as commit does; keeping a single
+// definition is what stops those two paths from drifting apart again.
+var gitIdentity = []string{
+	"-c", "user.name=memory-manager",
+	"-c", "user.email=memory-manager@localhost",
+}
+
+// withIdentity prefixes args with gitIdentity. It copies rather than appending
+// in place, so no caller can alias the shared slice.
+func withIdentity(args ...string) []string {
+	out := make([]string, 0, len(gitIdentity)+len(args))
+	out = append(out, gitIdentity...)
+	return append(out, args...)
 }
 
 func dedupe(paths []string) []string {
@@ -204,6 +217,20 @@ func (e *ErrRebaseConflict) Error() string {
 		"; resolve it by hand in the personal clone"
 }
 
+// ErrRebaseFailed reports that the rebase could not run at all: an unreachable
+// remote, a timeout, a git that refuses to replay commits.
+//
+// It is deliberately a different type from ErrRebaseConflict. Reporting every
+// failure as a conflict sends the user hunting for conflicting files that do not
+// exist, and this runs from a SessionEnd hook where nobody sees the real stderr.
+type ErrRebaseFailed struct{ Err error }
+
+func (e *ErrRebaseFailed) Error() string {
+	return "personal memory could not be rebased onto the remote: " + e.Err.Error()
+}
+
+func (e *ErrRebaseFailed) Unwrap() error { return e.Err }
+
 // Push publishes local commits, rebasing once if the remote moved.
 //
 // One fact per file means a concurrent edit from another machine almost always
@@ -226,12 +253,18 @@ func (r Repo) Push() error {
 		return nil
 	}
 
-	if _, err := gitx.Run(r.Path, "pull", "--rebase", "--quiet"); err != nil {
+	if _, err := gitx.Run(r.Path, withIdentity("pull", "--rebase", "--quiet")...); err != nil {
 		conflicts, _ := gitx.Run(r.Path, "diff", "--name-only", "--diff-filter=U")
+		files := nonEmptyLines(conflicts)
 		// Abort unconditionally: if no rebase is in progress this fails harmlessly,
 		// and leaving one in progress would break every later run.
 		_, _ = gitx.Run(r.Path, "rebase", "--abort")
-		return &ErrRebaseConflict{Files: nonEmptyLines(conflicts)}
+		// Unmerged paths are what separates a real conflict from a rebase that
+		// never got far enough to produce one.
+		if len(files) == 0 {
+			return &ErrRebaseFailed{Err: err}
+		}
+		return &ErrRebaseConflict{Files: files}
 	}
 
 	if _, err := gitx.Run(r.Path, "push", "--quiet"); err != nil {
