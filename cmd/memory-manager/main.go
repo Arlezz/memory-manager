@@ -188,6 +188,9 @@ func cmdConfig(args []string) error {
 		cfg = config.Config{}
 	}
 	if *repo != "" {
+		if err := refusePersonalRepoIsProject(*repo); err != nil {
+			return err
+		}
 		cfg.PersonalRepo = *repo
 	}
 	if *branch != "" {
@@ -197,7 +200,46 @@ func cmdConfig(args []string) error {
 		return err
 	}
 	fmt.Printf("wrote %s\npersonal repo: %s\n", path, cfg.PersonalRepo)
+	if *repo != "" {
+		fmt.Println("\nThe personal layer holds what must not be published: your preferences, your\n" +
+			"machine's details, and feedback scoped to work projects. Make sure this\n" +
+			"repository is private before the next push.")
+	}
 	return nil
+}
+
+// refusePersonalRepoIsProject rejects pointing the personal layer at the
+// repository you are standing in.
+//
+// The two layers exist to separate what is shared from what is not. Aiming them
+// at one repository collapses that distinction and publishes the private half
+// into whatever the project's remote is — which, for a public project, is the
+// whole internet. There is no case where this is what someone meant, so it is an
+// error rather than a warning.
+//
+// A repository that cannot be resolved is not an obstacle: only a positive match
+// refuses.
+func refusePersonalRepoIsProject(repo string) error {
+	want, err := identity.Normalize(repo)
+	if err != nil {
+		return nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	id, err := identity.Resolve(cwd)
+	if err != nil || id.Canonical == "" {
+		return nil
+	}
+	if want != id.Canonical {
+		return nil
+	}
+	return fmt.Errorf(
+		"refusing: %s is this project's own repository.\n"+
+			"The personal layer would be published into it, which defeats the split\n"+
+			"between shared and private memory. Create a separate private repository",
+		id.Canonical)
 }
 
 func cmdMigrate(args []string) error {

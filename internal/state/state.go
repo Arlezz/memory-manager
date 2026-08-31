@@ -41,8 +41,34 @@ type Manifest struct {
 	Canonical string `json:"canonical"`
 	// MemoryDir is where the merge was written.
 	MemoryDir string `json:"memory_dir"`
+	// PersonalRepo is the personal repository the entries were recorded against.
+	// Empty in manifests written before this field existed.
+	PersonalRepo string `json:"personal_repo,omitempty"`
 	// Entries is keyed by file name.
 	Entries map[string]Entry `json:"entries"`
+}
+
+// ForPersonalRepo returns m unchanged when it was recorded against repo, and an
+// empty manifest when it was not.
+//
+// Repointing the personal layer at a different repository invalidates every
+// personal entry at once: the origin paths and hashes describe files in a clone
+// that is gone. Trusting them makes push report "nothing to push" against an
+// empty repository, which is the exact failure this tool exists to prevent —
+// believing memory is synced while nothing is there.
+//
+// A manifest written before this field existed carries no repo and is kept, so
+// an upgrade does not force a needless full rewrite. It is stamped on the next
+// sync or push, and protected from then on.
+//
+// A missing origin file is deliberately NOT used as the signal here, tempting as
+// it looks: a personal memory deleted on another machine also has no origin
+// file, and that absence is exactly how a real deletion propagates.
+func (m Manifest) ForPersonalRepo(repo string) Manifest {
+	if m.PersonalRepo == "" || m.PersonalRepo == repo {
+		return m
+	}
+	return Manifest{Version: Version, Slug: m.Slug, Canonical: m.Canonical, Entries: map[string]Entry{}}
 }
 
 // Dir returns the directory holding manifests.

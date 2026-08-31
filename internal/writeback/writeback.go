@@ -131,6 +131,11 @@ func Build(dir string) (Plan, error) {
 	if cfg, cfgErr := config.Load(); cfgErr != nil {
 		plan.Warnings = append(plan.Warnings, cfgErr.Error())
 	} else {
+		if fresh := manifest.ForPersonalRepo(cfg.PersonalRepo); len(fresh.Entries) != len(manifest.Entries) {
+			plan.Warnings = append(plan.Warnings,
+				"the personal repository changed since the last sync; every memory is treated as new so nothing is left behind in the old clone")
+			manifest = fresh
+		}
 		repo, warn, err := personal.Open(cfg)
 		if err != nil {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("personal layer: %v", err))
@@ -325,6 +330,12 @@ func Apply(plan Plan, opts Options) (Result, error) {
 	}
 
 	manifest, _ := state.Load(plan.Identity.Slug)
+	if cfg, cfgErr := config.Load(); cfgErr == nil {
+		manifest = manifest.ForPersonalRepo(cfg.PersonalRepo)
+		// Record which repository these entries describe, so a later repoint
+		// invalidates them instead of silently reporting nothing to push.
+		manifest.PersonalRepo = cfg.PersonalRepo
+	}
 	if manifest.Entries == nil {
 		manifest.Entries = map[string]state.Entry{}
 	}

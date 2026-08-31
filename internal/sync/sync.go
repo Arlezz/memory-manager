@@ -164,6 +164,11 @@ func Run(opts Options) (Result, error) {
 	if manifestErr != nil {
 		res.Warnings = append(res.Warnings, manifestErr.Error())
 	}
+	if fresh := prev.ForPersonalRepo(cfg.PersonalRepo); len(fresh.Entries) != len(prev.Entries) {
+		res.Warnings = append(res.Warnings,
+			"the personal repository changed since the last sync; the manifest was discarded and every memory is treated as new")
+		prev = fresh
+	}
 
 	if opts.DryRun {
 		res.tally(chosen)
@@ -176,11 +181,12 @@ func Run(opts Options) (Result, error) {
 	}
 
 	next := state.Manifest{
-		Version:   state.Version,
-		Slug:      id.Slug,
-		Canonical: id.Canonical,
-		MemoryDir: target,
-		Entries:   map[string]state.Entry{},
+		Version:      state.Version,
+		Slug:         id.Slug,
+		Canonical:    id.Canonical,
+		MemoryDir:    target,
+		PersonalRepo: cfg.PersonalRepo,
+		Entries:      map[string]state.Entry{},
 	}
 
 	// indexed holds the memory that will describe each name in the generated

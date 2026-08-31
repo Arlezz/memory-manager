@@ -9,6 +9,7 @@
 package migrate
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -221,6 +222,7 @@ func planFile(m frontmatter.Memory, id identity.Identity, personalRoot string) A
 // Source files are never deleted: the path-keyed directory stays as a backup, so
 // a wrong classification costs a second run rather than a lost fact.
 func Apply(plan Plan, allowSecrets bool) (written int, skipped int, err error) {
+	var personalWrites []string
 	for _, g := range plan.Groups {
 		for _, a := range g.Actions {
 			if a.Blocked != "" || a.Dest == "" {
@@ -243,9 +245,58 @@ func Apply(plan Plan, allowSecrets bool) (written int, skipped int, err error) {
 				return written, skipped, wErr
 			}
 			written++
+			if strings.HasPrefix(a.Dest, plan.PersonalRoot) && plan.PersonalRoot != "" {
+				personalWrites = append(personalWrites, a.Dest)
+			}
+		}
+	}
+
+	// Writing the files is not the end of the job. Everything under the personal
+	// clone has to be committed and pushed, or the user is told the migration
+	// succeeded while their memory never leaves the disk — and nothing else in
+	// the tool will ever pick these files up, because push only commits what push
+	// itself wrote.
+	if len(personalWrites) > 0 {
+		if err := publishPersonal(plan, personalWrites); err != nil {
+			return written, skipped, fmt.Errorf("files were written but the personal layer was not published: %w", err)
 		}
 	}
 	return written, skipped, nil
+}
+
+// publishPersonal commits and pushes what Apply wrote into the personal clone.
+func publishPersonal(plan Plan, dests []string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	repo, _, err := personal.Open(cfg)
+	if err != nil {
+		return err
+	}
+	rel := make([]string, 0, len(dests))
+	for _, d := range dests {
+		r, relErr := filepath.Rel(repo.Path, d)
+		if relErr != nil {
+			return relErr
+		}
+		rel = append(rel, filepath.ToSlash(r))
+	}
+	msg := fmt.Sprintf("memory: adopt %d migrated %s", len(rel), plural(len(rel), "memory", "memories"))
+	if err := repo.Commit(rel, msg); err != nil {
+		if errors.Is(err, personal.ErrNothingToCommit) {
+			return nil
+		}
+		return err
+	}
+	return repo.Push()
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // indexWorkDirs maps a mangled directory name to the working directory that
