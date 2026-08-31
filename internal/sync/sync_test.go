@@ -2,6 +2,7 @@ package sync
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -409,4 +410,71 @@ func readFile(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(data)
+}
+
+// TestRunKeepsProjectWhenLayerUnavailable is the regression test for a real
+// loss: six project memories were deleted from a machine because the project
+// layer directory was absent at the moment of a sync, and layer.Read reports a
+// missing directory as an empty one. The personal layer had this guard; the
+// project layer did not.
+func TestRunKeepsProjectWhenLayerUnavailable(t *testing.T) {
+	l := newLab(t)
+	l.writeProjectMemory("decision.md", "project", "why git over blob storage")
+	l.run()
+	assertHas(t, l.merged(), "decision.md")
+
+	// Not "every memory was deleted" — the directory itself is gone.
+	if err := os.RemoveAll(filepath.Join(l.projectDir, ".claude", "memory")); err != nil {
+		t.Fatal(err)
+	}
+	res := l.run()
+
+	if res.Removed != 0 {
+		t.Errorf("Removed = %d, want 0: an absent project layer is not a deletion", res.Removed)
+	}
+	assertHas(t, l.merged(), "decision.md")
+	if !hasWarning(res, "not deleted while the project layer is unavailable") {
+		t.Errorf("no warning explained the retained files: %v", res.Warnings)
+	}
+	// Still tracked, or it silently becomes an unmanaged file.
+	if got := layerOf(t, l, "decision.md"); got != "project" {
+		t.Errorf("layer = %q, want project", got)
+	}
+}
+
+// TestRunArchivesBeforeRemoving pins that a removal is recoverable. Deletions
+// are derived from a manifest and from what a layer reports, both of which have
+// been wrong, and this runs unattended from a hook.
+func TestRunArchivesBeforeRemoving(t *testing.T) {
+	l := newLab(t)
+	l.enablePersonal()
+	l.writePersonalGlobal("spanish.md", "user", "respond in Spanish")
+	l.run()
+	assertHas(t, l.merged(), "spanish.md")
+
+	// A genuine upstream deletion: the layer is present, the file is not.
+	if err := os.Remove(filepath.Join(l.personalDir, "global", "spanish.md")); err != nil {
+		t.Fatal(err)
+	}
+	if res := l.run(); res.Removed != 1 {
+		t.Fatalf("Removed = %d, want 1", res.Removed)
+	}
+
+	dir, err := ArchiveDir("test__project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found string
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && filepath.Base(path) == "spanish.md" {
+			found = path
+		}
+		return nil
+	})
+	if found == "" {
+		t.Fatalf("the removed memory was not archived under %s", dir)
+	}
+	if !strings.Contains(readFile(t, found), "respond in Spanish") {
+		t.Error("the archived copy does not hold the memory's content")
+	}
 }

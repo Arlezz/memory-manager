@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/Arlezz/memory-manager/internal/claudedir"
 	"github.com/Arlezz/memory-manager/internal/config"
@@ -41,6 +43,53 @@ type Result struct {
 	Warnings []string
 	// Degraded reports that the merge did not happen and local memory is in use.
 	Degraded bool
+}
+
+// ArchiveDir returns the directory holding memories removed by a sync.
+//
+// Nothing prunes it. It is small — one markdown file per removal — and the cost
+// of keeping it forever is nothing next to the cost of not having it once.
+func ArchiveDir(slug string) (string, error) {
+	root, err := claudedir.Root()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "memory-manager", "removed", slug), nil
+}
+
+// archive copies a memory out of the memory directory before it is deleted.
+//
+// Deletions here are derived from a manifest and from what a layer reports, and
+// both have been wrong. `migrate` already leaves its originals in place as a
+// backup; removal is the more destructive operation and deserves at least the
+// same. The day stamp groups a session's removals without needing a lock.
+func archive(slug, name, src string) error {
+	dir, err := ArchiveDir(slug)
+	if err != nil {
+		return err
+	}
+	dir = filepath.Join(dir, time.Now().UTC().Format("2006-01-02"))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		// Already gone: there is nothing to lose and nothing to archive.
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	dest := filepath.Join(dir, name)
+	// Two removals of the same name on one day must not silently overwrite.
+	for i := 2; ; i++ {
+		if _, err := os.Stat(dest); os.IsNotExist(err) {
+			break
+		}
+		ext := filepath.Ext(name)
+		dest = filepath.Join(dir, fmt.Sprintf("%s.%d%s", strings.TrimSuffix(name, ext), i, ext))
+	}
+	return os.WriteFile(dest, data, 0o644)
 }
 
 // Options configures a sync.
@@ -99,9 +148,20 @@ func Run(opts Options) (Result, error) {
 	if projectRoot == "" {
 		projectRoot = abs
 	}
-	projectMemories, err := layer.Read(filepath.Join(projectRoot, filepath.FromSlash(layer.ProjectDir)))
+	// projectAvailable gates deletion propagation the same way personalAvailable
+	// does below. layer.Read reports a missing directory as an empty one, so
+	// without this a project layer that is absent — a checkout mid-rebase, a
+	// directory not yet restored, a wrong working tree — is indistinguishable
+	// from one where every memory was deliberately deleted.
+	projectDir := filepath.Join(projectRoot, filepath.FromSlash(layer.ProjectDir))
+	projectAvailable := true
+	if _, statErr := os.Stat(projectDir); statErr != nil {
+		projectAvailable = false
+	}
+	projectMemories, err := layer.Read(projectDir)
 	if err != nil {
 		res.Warnings = append(res.Warnings, fmt.Sprintf("project layer unreadable: %v", err))
+		projectAvailable = false
 	}
 
 	// Personal layer: needs the private clone, which may be unavailable.
@@ -269,26 +329,48 @@ func Run(opts Options) (Result, error) {
 	// A file is only deleted when its own layer was readable this run. An
 	// unreachable personal remote otherwise looks exactly like an upstream
 	// deletion, and the tool would strip memory because the network blinked.
-	var retained int
+	var retainedPersonal, retainedProject int
 	for _, name := range prev.Names() {
 		if _, still := chosen[name]; still {
 			continue
 		}
 		entry := prev.Entries[name]
+		// Keep the file and keep tracking it, so it is still a managed file once
+		// the layer comes back. Which layer went missing is named in the warning:
+		// an absent project directory and an unreachable personal remote need
+		// different things done about them.
 		if entry.Layer == string(layer.Personal) && !personalAvailable {
-			// Keep the file and keep tracking it, so it is still a managed file
-			// once the layer comes back.
 			next.Entries[name] = entry
-			retained++
+			retainedPersonal++
 			continue
 		}
-		if err := os.Remove(filepath.Join(target, name)); err == nil {
+		if entry.Layer == string(layer.Project) && !projectAvailable {
+			next.Entries[name] = entry
+			retainedProject++
+			continue
+		}
+		path := filepath.Join(target, name)
+		// A copy has to survive the delete. This runs unattended from a hook, so
+		// a wrong judgement here destroys the only copy of a memory with nobody
+		// watching. If the archive fails the file stays: keeping a stale memory
+		// costs a duplicate, losing one costs the fact.
+		if err := archive(prev.Slug, name, path); err != nil {
+			res.Warnings = append(res.Warnings,
+				fmt.Sprintf("%s was not removed: it could not be archived first (%v)", name, err))
+			next.Entries[name] = entry
+			continue
+		}
+		if err := os.Remove(path); err == nil {
 			res.Removed++
 		}
 	}
-	if retained > 0 {
+	if retainedPersonal > 0 {
 		res.Warnings = append(res.Warnings,
-			fmt.Sprintf("kept %d personal memory file(s) that could not be refreshed; they are not deleted while the personal layer is unavailable", retained))
+			fmt.Sprintf("kept %d personal memory file(s) that could not be refreshed; they are not deleted while the personal layer is unavailable", retainedPersonal))
+	}
+	if retainedProject > 0 {
+		res.Warnings = append(res.Warnings,
+			fmt.Sprintf("kept %d project memory file(s); they are not deleted while the project layer is unavailable, and %s is missing", retainedProject, projectDir))
 	}
 
 	merged := make([]frontmatter.Memory, 0, len(indexed))
