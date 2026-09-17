@@ -71,8 +71,74 @@ func Scan(text string) []Finding {
 		for _, f := range scanEntropy(line, i+1) {
 			out = append(out, f)
 		}
+		for _, f := range scanProse(line, i+1) {
+			out = append(out, f)
+		}
 	}
 	return dedupe(out)
+}
+
+// proseCandidate matches a password named in a sentence rather than assigned.
+//
+// The "assigned secret" rule needs the separator to follow the name directly,
+// so it catches "password: x" and misses "my password is x" and "the password
+// for the staging box is: x". Those are the shape that matters most here: this
+// is a memory system, its files are prose, and a password mentioned in passing
+// is the likeliest way one ever reaches the repository. Entropy cannot see them
+// either — "Tr0ub4dor&3" scores low.
+//
+// The filler between the name and the connector stops at a separator so it can
+// cross "for the staging box" without swallowing the ":" that follows.
+var proseCandidate = regexp.MustCompile(
+	`(?i)\b(?:password|passwd|passphrase|contrase[nñ]a|clave)\b` +
+		`[^:=\n]{0,40}?` +
+		`(?:(?:\bis\b|\bwas\b|\bes\b|\bera\b)\s*[:=]?|[:=])` +
+		`\s*["']?([^\s"',;]{8,})`)
+
+// scanProse catches a password stated in a sentence.
+//
+// Like scanEntropy, the regexp only proposes and the predicates dispose: a rule
+// that fires on "the password is rotated-every-90-days" would be turned off
+// within a week, and a scanner nobody trusts protects nothing. What survives is
+// a value that reads like a secret rather than like more prose.
+func scanProse(line string, lineNo int) []Finding {
+	var out []Finding
+	for _, m := range proseCandidate.FindAllStringSubmatch(line, -1) {
+		val := m[1]
+		// A plain word is the sentence continuing ("...is configured in Vault"),
+		// and a value that decomposes into words is a name, not a secret:
+		// "1Password" and "rotated-every-90-days" both land here.
+		if isAlpha(val) || looksLikeIdentifier(val) {
+			continue
+		}
+		out = append(out, Finding{
+			Rule:    "password in prose",
+			Line:    lineNo,
+			Excerpt: Mask(val),
+		})
+	}
+	return out
+}
+
+// RedactURL replaces an inline credential in a remote URL with "***", so the URL
+// can be printed, logged or persisted.
+//
+// A remote may legitimately carry "user:token@host", and this tool puts remote
+// URLs in error messages, on stdout and in the manifest. Redaction is idempotent
+// and leaves a credential-free URL untouched, which is what lets the redacted
+// form be compared against itself wherever the raw one used to be.
+func RedactURL(raw string) string {
+	if i := strings.Index(raw, "://"); i != -1 {
+		rest := raw[i+3:]
+		if at := strings.Index(rest, "@"); at != -1 {
+			return raw[:i+3] + "***@" + rest[at+1:]
+		}
+		return raw
+	}
+	if at := strings.Index(raw, "@"); at != -1 {
+		return "***@" + raw[at+1:]
+	}
+	return raw
 }
 
 // entropyCandidate matches long unbroken tokens worth an entropy check.

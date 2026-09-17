@@ -17,6 +17,7 @@ import (
 
 	"github.com/Arlezz/memory-manager/internal/claudedir"
 	"github.com/Arlezz/memory-manager/internal/fsx"
+	"github.com/Arlezz/memory-manager/internal/secrets"
 )
 
 // Version is the manifest schema version, so a future change can migrate
@@ -43,8 +44,13 @@ type Manifest struct {
 	Canonical string `json:"canonical"`
 	// MemoryDir is where the merge was written.
 	MemoryDir string `json:"memory_dir"`
-	// PersonalRepo is the personal repository the entries were recorded against.
-	// Empty in manifests written before this field existed.
+	// PersonalRepo is the personal repository the entries were recorded against,
+	// with any inline credential redacted. Empty in manifests written before this
+	// field existed.
+	//
+	// It is stored redacted because the manifest is a plain file on disk and a
+	// remote URL may legitimately carry a token. Comparisons redact the other
+	// side too, so the redacted form is what both sides speak.
 	PersonalRepo string `json:"personal_repo,omitempty"`
 	// Entries is keyed by file name.
 	Entries map[string]Entry `json:"entries"`
@@ -66,8 +72,14 @@ type Manifest struct {
 // A missing origin file is deliberately NOT used as the signal here, tempting as
 // it looks: a personal memory deleted on another machine also has no origin
 // file, and that absence is exactly how a real deletion propagates.
+//
+// Both sides are redacted before comparing, so that rotating a token in the
+// configured URL is not mistaken for pointing at a different repository. A
+// manifest written before this field was redacted still holds the raw URL; if
+// that one carried a credential it no longer matches, the entries are dropped
+// once, and the next write stores the redacted form.
 func (m Manifest) ForPersonalRepo(repo string) Manifest {
-	if m.PersonalRepo == "" || m.PersonalRepo == repo {
+	if m.PersonalRepo == "" || m.PersonalRepo == secrets.RedactURL(repo) {
 		return m
 	}
 	return Manifest{Version: Version, Slug: m.Slug, Canonical: m.Canonical, Entries: map[string]Entry{}}
@@ -146,8 +158,14 @@ func isPlainName(name string) bool {
 
 // Save writes the manifest atomically, so an interrupted run cannot leave a
 // half-written file that the next run refuses to parse.
+//
+// The mode is 0o600, matching config.json: the manifest names the personal
+// repository and every origin path inside the clone. On Windows the mode only
+// moves the read-only bit and the ACL is inherited either way, but macOS and
+// Linux are next, and there a 0o644 manifest is readable by every local user.
 func Save(m Manifest) error {
 	m.Version = Version
+	m.PersonalRepo = secrets.RedactURL(m.PersonalRepo)
 	p, err := path(m.Slug)
 	if err != nil {
 		return err
@@ -159,7 +177,7 @@ func Save(m Manifest) error {
 	if err != nil {
 		return err
 	}
-	return fsx.WriteFile(p, append(data, '\n'), 0o644)
+	return fsx.WriteFile(p, append(data, '\n'), 0o600)
 }
 
 // Digest returns the SHA256 of content, hex encoded.

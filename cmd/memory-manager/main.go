@@ -22,6 +22,7 @@ import (
 	"github.com/Arlezz/memory-manager/internal/config"
 	"github.com/Arlezz/memory-manager/internal/identity"
 	"github.com/Arlezz/memory-manager/internal/migrate"
+	"github.com/Arlezz/memory-manager/internal/secrets"
 	"github.com/Arlezz/memory-manager/internal/sync"
 	"github.com/Arlezz/memory-manager/internal/writeback"
 )
@@ -180,7 +181,7 @@ func cmdConfig(args []string) error {
 		}
 		clone, _ := config.PersonalClonePath()
 		fmt.Printf("config:          %s\npersonal repo:   %s\npersonal branch: %s\nlocal clone:     %s\n",
-			path, orNone(cfg.PersonalRepo), orNone(cfg.PersonalBranch), clone)
+			path, orNone(secrets.RedactURL(cfg.PersonalRepo)), orNone(cfg.PersonalBranch), clone)
 		return nil
 	}
 
@@ -190,6 +191,9 @@ func cmdConfig(args []string) error {
 	}
 	if *repo != "" {
 		if err := refuseOptionLikeRepo(*repo); err != nil {
+			return err
+		}
+		if err := refuseUnusableRepo(*repo); err != nil {
 			return err
 		}
 		if err := refusePersonalRepoIsProject(*repo); err != nil {
@@ -203,7 +207,7 @@ func cmdConfig(args []string) error {
 	if err := config.Save(cfg); err != nil {
 		return err
 	}
-	fmt.Printf("wrote %s\npersonal repo: %s\n", path, cfg.PersonalRepo)
+	fmt.Printf("wrote %s\npersonal repo: %s\n", path, secrets.RedactURL(cfg.PersonalRepo))
 	if *repo != "" {
 		fmt.Println("\nThe personal layer holds what must not be published: your preferences, your\n" +
 			"machine's details, and feedback scoped to work projects. Make sure this\n" +
@@ -231,7 +235,32 @@ func refuseOptionLikeRepo(repo string) error {
 	return fmt.Errorf(
 		"refusing: %q starts with a dash, which git reads as an option rather than\n"+
 			"a repository URL. Use the full clone URL of your private memory repository",
-		repo)
+		secrets.RedactURL(repo))
+}
+
+// refuseUnusableRepo rejects a personal repository URL that cannot be read as a
+// remote at all.
+//
+// This is the one check of the three that fails closed, and the reason is that
+// its error means something different from the other two. identity.Normalize
+// rejects an empty value, a local path and anything it cannot split into a host
+// and a repository path; a value it refuses is not "unverified", it is wrong.
+// The old guard discarded that error, which is how a bare local path reached the
+// config file in the audit.
+//
+// It also covers the shape validation left out of the option-shaped check:
+// asking Normalize to accept the value is the same question as asking whether
+// git could ever clone it, without inventing a second list of allowed schemes
+// that would have to be kept in step with this one.
+func refuseUnusableRepo(repo string) error {
+	if _, err := identity.Normalize(repo); err != nil {
+		return fmt.Errorf(
+			"refusing %q as a personal repository: %w.\n"+
+				"Use the clone URL of a private remote, such as\n"+
+				"https://github.com/you/your-memory.git or git@github.com:you/your-memory.git",
+			secrets.RedactURL(repo), err)
+	}
+	return nil
 }
 
 // refusePersonalRepoIsProject rejects pointing the personal layer at the
@@ -244,12 +273,17 @@ func refuseOptionLikeRepo(repo string) error {
 // error rather than a warning.
 //
 // A repository that cannot be resolved is not an obstacle: only a positive match
-// refuses.
+// refuses. That is deliberate and it is not the same as failing open — see
+// refuseUnusableRepo, which is the check that does have to fail closed.
 func refusePersonalRepoIsProject(repo string) error {
+	// Already rejected by refuseUnusableRepo, which runs first.
 	want, err := identity.Normalize(repo)
 	if err != nil {
 		return nil
 	}
+	// The remaining two are "there is no project to compare against", not "the
+	// comparison failed". Refusing here would make `config` unusable from any
+	// directory that is not a git repository, which is where it is first run.
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil
@@ -265,6 +299,39 @@ func refusePersonalRepoIsProject(repo string) error {
 		"refusing: %s is this project's own repository.\n"+
 			"The personal layer would be published into it, which defeats the split\n"+
 			"between shared and private memory. Create a separate private repository",
+		id.Canonical)
+}
+
+// refusePushIntoTheProject stops a push that would publish the personal layer
+// into the repository being worked in.
+//
+// The guard in `config` only ever saw the directory it was run from, and only at
+// the moment it was run. A personal repo that was fine then is not necessarily
+// fine now: the project may have gained a remote, the remote may have been
+// changed, or the personal repo may have been pointed at another project's
+// repository entirely — none of which `config` is present for. This is the check
+// at the moment it actually matters, which is the moment something leaves the
+// machine.
+//
+// Only a positive match refuses, for the same reason as in config: no resolvable
+// identity means there is nothing to compare, not that the comparison failed.
+func refusePushIntoTheProject(dir string) error {
+	cfg, err := config.Load()
+	if err != nil || cfg.PersonalRepo == "" {
+		return nil
+	}
+	want, err := identity.Normalize(cfg.PersonalRepo)
+	if err != nil {
+		return nil
+	}
+	id, err := identity.Resolve(dir)
+	if err != nil || id.Canonical == "" || want != id.Canonical {
+		return nil
+	}
+	return fmt.Errorf(
+		"refusing to push: the personal layer points at %s, which is this project's\n"+
+			"own repository. Pushing would publish your private memory into it.\n"+
+			"Fix it with: memory-manager config -personal-repo <your private repo>",
 		id.Canonical)
 }
 
@@ -479,6 +546,9 @@ func cmdPush(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := refusePushIntoTheProject(dir); err != nil {
+		return err
+	}
 	if plan.Settled() {
 		// Same reasoning as the sync summary: an empty push still reports that
 		// it ran. The warnings matter most here, because a layer that went
@@ -523,6 +593,16 @@ func cmdPush(args []string) error {
 		fmt.Print("; committed, not pushed")
 	}
 	fmt.Println()
+
+	// "removed" is true of the tree and false of the repository, and the gap
+	// matters most for exactly the memory someone wants gone. Git history is
+	// append-only: the content stays reachable with one command, in this clone
+	// and in every other one already pulled elsewhere.
+	if res.PersonalRemoved > 0 && !*dryRun {
+		fmt.Println("\nRemoved from the current tree. Git history keeps the earlier content, here\n" +
+			"and in every clone that already pulled it, so a memory that held something\n" +
+			"sensitive is not gone — rotate the secret rather than trusting the deletion.")
+	}
 
 	// The project layer is deliberately left uncommitted, so the user has to be
 	// told which files are now waiting in their work tree.

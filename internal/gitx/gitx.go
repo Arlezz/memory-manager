@@ -14,6 +14,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/Arlezz/memory-manager/internal/secrets"
 )
 
 // ErrNotFound reports that no git executable is available on PATH.
@@ -62,9 +64,29 @@ func RunWithTimeout(dir string, timeout time.Duration, args ...string) (string, 
 		if msg == "" {
 			msg = err.Error()
 		}
-		return out, fmt.Errorf("git %s: %s", strings.Join(args, " "), msg)
+		return out, fmt.Errorf("git %s: %s", strings.Join(redactArgs(args), " "), msg)
 	}
 	return out, nil
+}
+
+// redactArgs strips inline credentials from any argument shaped like a URL, so
+// that quoting the command line in an error cannot leak a token.
+//
+// This error reaches the hook's stderr, which Claude Code captures, so it is the
+// widest of the three ways the URL used to escape. Only arguments carrying a
+// scheme are touched: that is the only form where git accepts a credential, and
+// leaving the rest alone keeps a commit message that happens to contain "@"
+// readable in the error that quotes it.
+func redactArgs(args []string) []string {
+	out := make([]string, len(args))
+	for i, a := range args {
+		if strings.Contains(a, "://") {
+			out[i] = secrets.RedactURL(a)
+			continue
+		}
+		out[i] = a
+	}
+	return out
 }
 
 // RemoteURL returns the fetch URL of the named remote, as configured.
