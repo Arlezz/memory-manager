@@ -20,7 +20,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version: "1.25.8"
 
       # Several tests drive the real git binary. It is present on all three
       # runners; this makes the dependency visible if that ever changes.
@@ -40,7 +40,26 @@ jobs:
 
       - run: go vet ./...
 
-      - run: go test -race ./...
+      - run: go test -race -cover ./...
 
       - name: Build
         run: go build ./cmd/memory-manager
+
+  vuln:
+    # One runner is enough: govulncheck reads the module and the vulnerability
+    # database, and neither answer differs by operating system. It is its own
+    # job so that an advisory published between two pushes reports as itself
+    # rather than as a failure of the test matrix.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.8"
+
+      # The tool is pinned so a release of govulncheck cannot fail this build on
+      # its own. What it knows is not pinned: the vulnerability database is
+      # fetched at run time, so a new advisory still surfaces here.
+      - name: Check for known vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
