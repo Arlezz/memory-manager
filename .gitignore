@@ -8,3 +8,6 @@
 /npm/*/memory-manager.exe
 
 node_modules/
+
+# Audit reports. Written locally, reviewed locally, never published.
+/auditoria/
