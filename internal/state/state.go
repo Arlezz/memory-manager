@@ -13,8 +13,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/Arlezz/memory-manager/internal/claudedir"
+	"github.com/Arlezz/memory-manager/internal/fsx"
 )
 
 // Version is the manifest schema version, so a future change can migrate
@@ -112,7 +114,34 @@ func Load(slug string) (Manifest, error) {
 	if m.Entries == nil {
 		m.Entries = map[string]Entry{}
 	}
+	for k := range m.Entries {
+		if !isPlainName(k) {
+			delete(m.Entries, k)
+		}
+	}
 	return m, nil
+}
+
+// isPlainName reports whether name is a bare file name, with no directory part
+// of any kind.
+//
+// Entry keys are joined onto a layer root and reach os.WriteFile and os.Remove.
+// A sync can only ever produce keys that came from filepath.Base, so a key that
+// is not one did not come from a sync, and a dropped entry costs nothing: the
+// next sync sees the file as untracked and records it again.
+//
+// The separator is checked explicitly for both platforms rather than left to
+// filepath.Base, because a manifest is synced between machines: on Linux,
+// filepath.Base leaves "global\\..\\x.md" whole, and that same string is a path
+// with directories on the Windows the file may have come from.
+func isPlainName(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return false
+	}
+	return filepath.Base(name) == name
 }
 
 // Save writes the manifest atomically, so an interrupted run cannot leave a
@@ -130,11 +159,7 @@ func Save(m Manifest) error {
 	if err != nil {
 		return err
 	}
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, p)
+	return fsx.WriteFile(p, append(data, '\n'), 0o644)
 }
 
 // Digest returns the SHA256 of content, hex encoded.
