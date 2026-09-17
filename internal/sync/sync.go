@@ -44,6 +44,13 @@ type Result struct {
 	// the one moment the user is looking, and a stranded commit is invisible
 	// everywhere else.
 	PersonalUnpushed int
+	// PersonalBehind counts commits the remote has that the clone does not. Ahead
+	// and behind at once is a conflict, which a push cannot resolve — the advice
+	// printed for it has to differ, or the user is sent around a loop.
+	PersonalBehind int
+	// PersonalClone is the path of the personal clone, so advice about resolving
+	// a conflict can name the directory to go to.
+	PersonalClone string
 	// Warnings are non-fatal problems worth showing the user. A silent failure
 	// here means working for weeks against stale memory without knowing.
 	Warnings []string
@@ -98,6 +105,31 @@ func archive(slug, name, src string) error {
 	return fsx.WriteFile(dest, data, 0o644)
 }
 
+// ErrorLogFile is where the hook launcher records a run that failed. It exits
+// zero by design, so without this the only trace is one line of stderr in a wall
+// of session output.
+const ErrorLogFile = "last-error.log"
+
+// lastHookFailure returns a warning about an earlier hook run that failed, or
+// "" when there is nothing recorded.
+//
+// The launcher clears the file after a run that works, so anything here is the
+// most recent failure and has not been superseded. This is the other half of
+// that record: a file nobody is told about is the same as no file.
+func lastHookFailure() string {
+	root, err := claudedir.Root()
+	if err != nil {
+		return ""
+	}
+	p := filepath.Join(root, "memory-manager", ErrorLogFile)
+	data, err := os.ReadFile(p)
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("an earlier hook run failed and memory may be out of date: %s (recorded in %s)",
+		strings.TrimSpace(string(data)), p)
+}
+
 // Options configures a sync.
 type Options struct {
 	// Dir is the project directory to sync. Defaults to the working directory.
@@ -149,6 +181,10 @@ func Run(opts Options) (Result, error) {
 	}
 	res.MemoryDir = target
 
+	if w := lastHookFailure(); w != "" {
+		res.Warnings = append(res.Warnings, w)
+	}
+
 	// Project layer: already in the work tree, so it needs no network.
 	projectRoot := id.Root
 	if projectRoot == "" {
@@ -195,11 +231,13 @@ func Run(opts Options) (Result, error) {
 			personalAvailable = true
 			// Measured after the pull, so the remote-tracking ref this compares
 			// against is as fresh as the network allowed.
-			if n, aheadErr := repo.Unpushed(); aheadErr != nil {
+			if n, behind, aheadErr := repo.Divergence(); aheadErr != nil {
 				res.Warnings = append(res.Warnings,
 					fmt.Sprintf("personal layer: cannot tell whether it is pushed: %v", aheadErr))
 			} else {
 				res.PersonalUnpushed = n
+				res.PersonalBehind = behind
+				res.PersonalClone = repo.Path
 			}
 			if globalMemories, err = layer.Read(layer.PersonalPath(repo.Path, "")); err != nil {
 				res.Warnings = append(res.Warnings, fmt.Sprintf("personal global layer unreadable: %v", err))
@@ -246,7 +284,7 @@ func Run(opts Options) (Result, error) {
 
 	if opts.DryRun {
 		res.tally(chosen)
-		res.Removed = countRemovals(prev, chosen, personalAvailable)
+		res.Removed = countRemovals(prev, chosen, personalAvailable, projectAvailable)
 		return res, nil
 	}
 
@@ -425,16 +463,28 @@ func (r *Result) tally(chosen map[string]candidate) {
 }
 
 // countRemovals reports how many tracked files would be dropped, applying the
-// same rule as the real run: a personal memory is never dropped while its layer
-// is unavailable.
-func countRemovals(prev state.Manifest, chosen map[string]candidate, personalAvailable bool) int {
+// same rule as the real run: a memory is never dropped while its own layer is
+// unavailable.
+//
+// Both guards have to be here, and the project one was missing. It is the
+// preview of the guard added after a real loss of data, and a preview that
+// announces a deletion the real run will not perform is not a safe error — it
+// teaches the user that the number is decoration.
+func countRemovals(prev state.Manifest, chosen map[string]candidate, personalAvailable, projectAvailable bool) int {
 	n := 0
 	for _, name := range prev.Names() {
 		if _, still := chosen[name]; still {
 			continue
 		}
-		if prev.Entries[name].Layer == string(layer.Personal) && !personalAvailable {
-			continue
+		switch prev.Entries[name].Layer {
+		case string(layer.Personal):
+			if !personalAvailable {
+				continue
+			}
+		case string(layer.Project):
+			if !projectAvailable {
+				continue
+			}
 		}
 		n++
 	}

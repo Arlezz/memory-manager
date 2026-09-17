@@ -30,6 +30,43 @@ function claudeRoot() {
   return path.join(os.homedir(), ".claude");
 }
 
+/** errorLogPath returns the file that records the last failed run. */
+function errorLogPath() {
+  return path.join(claudeRoot(), "memory-manager", "last-error.log");
+}
+
+/**
+ * recordFailure leaves a trace a later run can find.
+ *
+ * Exiting zero is the right call — a memory that will not sync must not stop
+ * anyone working — but it means a broken, missing or replaced binary shows up
+ * only as one line of stderr in a wall of session output, and nobody reads
+ * that line. Since the loss this tool exists to prevent is a memory that never
+ * arrives, the failure has to outlive the session that saw it. `sync` reports
+ * this file on its next successful run.
+ *
+ * Every error here is swallowed: a launcher that cannot write its own log must
+ * still not take the session down with it.
+ */
+function recordFailure(subcommand, message) {
+  try {
+    const p = errorLogPath();
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, `${new Date().toISOString()} ${subcommand}: ${message}\n`);
+  } catch {
+    // Nothing to do, and nothing worth saying: stderr already carried the message.
+  }
+}
+
+/** clearFailure removes the record after a run that worked. */
+function clearFailure() {
+  try {
+    fs.rmSync(errorLogPath(), { force: true });
+  } catch {
+    // A stale record is a smaller problem than a failed session start.
+  }
+}
+
 /**
  * findBinary locates the executable.
  *
@@ -94,13 +131,19 @@ function main() {
   });
 
   if (result.error) {
-    process.stderr.write(`memory-manager: could not run ${bin}: ${result.error.message}\n`);
+    const msg = `could not run ${bin}: ${result.error.message}`;
+    process.stderr.write(`memory-manager: ${msg}\n`);
+    recordFailure(subcommand, msg);
   } else if (result.status !== 0) {
     // The binary already explained itself on stderr. Say what it means for the
     // session, then let the session continue.
-    process.stderr.write(
-      `memory-manager: ${subcommand} exited with ${result.status}; the session continues on local memory\n`
-    );
+    const msg = `${subcommand} exited with ${result.status}; the session continued on local memory`;
+    process.stderr.write(`memory-manager: ${msg}\n`);
+    recordFailure(subcommand, msg);
+  } else {
+    // A run that worked clears the record, so the file always describes the
+    // last failure and never an old one that has since been fixed.
+    clearFailure();
   }
 
   // Always zero. See the note at the top of this file.

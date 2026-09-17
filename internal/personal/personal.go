@@ -289,23 +289,46 @@ func (r Repo) Push() error {
 // It compares local refs only. No network means it is honest about the last
 // known remote rather than blocking, and cheap enough to run on every status.
 func (r Repo) Unpushed() (int, error) {
+	ahead, _, err := r.Divergence()
+	return ahead, err
+}
+
+// Divergence reports how far the clone is ahead of and behind its upstream.
+//
+// Ahead alone is "waiting to be sent", and the advice for it is to push. Ahead
+// and behind together is a conflict that a push cannot resolve, and printing
+// the same advice there sends the user around a loop: the push fails, the count
+// persists, the next session repeats the suggestion. Telling the two apart is
+// the whole reason this returns both numbers instead of one.
+//
+// One rev-list answers both, and it compares local refs only: no network means
+// it is honest about the last known remote rather than blocking, and cheap
+// enough to run on every status.
+func (r Repo) Divergence() (ahead, behind int, err error) {
 	if !r.Present {
-		return 0, nil
+		return 0, 0, nil
 	}
 	// No upstream yet — a clone of a repository that has never been pushed to —
 	// leaves nothing to compare against.
 	if _, err := gitx.Run(r.Path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"); err != nil {
-		return 0, nil
+		return 0, 0, nil
 	}
-	out, err := gitx.Run(r.Path, "rev-list", "--count", "@{u}..HEAD")
+	out, err := gitx.Run(r.Path, "rev-list", "--count", "--left-right", "@{u}...HEAD")
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	n, err := strconv.Atoi(out)
-	if err != nil {
-		return 0, fmt.Errorf("unreadable commit count %q from git rev-list: %w", out, err)
+	// git prints "<behind>\t<ahead>": the left side is the upstream.
+	fields := strings.Fields(out)
+	if len(fields) != 2 {
+		return 0, 0, fmt.Errorf("unreadable commit counts %q from git rev-list", out)
 	}
-	return n, nil
+	if behind, err = strconv.Atoi(fields[0]); err != nil {
+		return 0, 0, fmt.Errorf("unreadable commit count %q from git rev-list: %w", fields[0], err)
+	}
+	if ahead, err = strconv.Atoi(fields[1]); err != nil {
+		return 0, 0, fmt.Errorf("unreadable commit count %q from git rev-list: %w", fields[1], err)
+	}
+	return ahead, behind, nil
 }
 
 func nonEmptyLines(s string) []string {
