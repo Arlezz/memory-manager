@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -144,5 +145,52 @@ func TestRefuseOptionLikeRepo(t *testing.T) {
 		if err := refuseOptionLikeRepo(repo); err != nil {
 			t.Errorf("refuseOptionLikeRepo(%q) = %v, want nil", repo, err)
 		}
+	}
+}
+
+// TestRefuseUnusableRepo is the fail-closed half of A-10. The old guard threw
+// away identity.Normalize's error and carried on, which is how the audit's bench
+// accepted a bare local path as a personal repository.
+func TestRefuseUnusableRepo(t *testing.T) {
+	refused := []string{
+		// The collateral finding: a local path cannot identify a repository on
+		// another machine, which is the whole problem this tool exists to fix.
+		"/home/anton/notes",
+		"C:" + string(filepath.Separator) + "repos" + string(filepath.Separator) + "notes",
+		"./relative/path",
+		"file:///srv/git/memory.git",
+		"",
+		"   ",
+		"not a url at all",
+	}
+	for _, repo := range refused {
+		if err := refuseUnusableRepo(repo); err == nil {
+			t.Errorf("refuseUnusableRepo(%q) = nil, want an error", repo)
+		}
+	}
+
+	accepted := []string{
+		"https://github.com/acme-dev/orbit-x-memory.git",
+		"git@github.com:acme-dev/orbit-x-memory.git",
+		"ssh://git@gitlab.example.com:2222/acme-dev/orbit-x-memory.git",
+		"https://arlezz:github_pat_11ABCDEFG0aBcDeFgHiJkL@github.com/acme-dev/orbit-x-memory.git",
+	}
+	for _, repo := range accepted {
+		if err := refuseUnusableRepo(repo); err != nil {
+			t.Errorf("refuseUnusableRepo(%q) = %v, want nil", repo, err)
+		}
+	}
+}
+
+// TestRefuseUnusableRepoDoesNotLeakTheToken keeps the new error from undoing
+// A-03: it quotes the value the user passed, and that value may be the one form
+// that carries a credential.
+func TestRefuseUnusableRepoDoesNotLeakTheToken(t *testing.T) {
+	err := refuseUnusableRepo("file://arlezz:github_pat_11ABCDEFG0aBcDeFgHiJkL@localhost/x.git")
+	if err == nil {
+		t.Fatal("a file:// remote was accepted")
+	}
+	if strings.Contains(err.Error(), "github_pat_") {
+		t.Errorf("the token is in the error message: %v", err)
 	}
 }

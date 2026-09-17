@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/Arlezz/memory-manager/internal/secrets"
 )
 
 // ErrLocalRemote reports a remote that points at a local path.
@@ -136,16 +138,9 @@ func Slugify(canonical string) string {
 
 // redact removes any inline credentials from a remote URL so it is safe to put
 // in an error message.
+//
+// The implementation lives in secrets, which is where the other callers that
+// must not leak a credential look for it.
 func redact(raw string) string {
-	if i := strings.Index(raw, "://"); i != -1 {
-		rest := raw[i+3:]
-		if at := strings.Index(rest, "@"); at != -1 {
-			return raw[:i+3] + "***@" + rest[at+1:]
-		}
-		return raw
-	}
-	if at := strings.Index(raw, "@"); at != -1 {
-		return "***@" + raw[at+1:]
-	}
-	return raw
+	return secrets.RedactURL(raw)
 }
