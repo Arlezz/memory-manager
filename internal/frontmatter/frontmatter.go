@@ -57,6 +57,12 @@ var validScopes = map[string]bool{
 	"personal": true,
 }
 
+// maxFileSize is the size past which a memory file is reported as implausible.
+//
+// A memory is a fact plus its reasoning. 64 KB is roughly ten thousand words,
+// which no single fact needs and which every session pays for.
+const maxFileSize = 64 * 1024
+
 // Parse reads a memory file.
 //
 // It returns a Memory even for a malformed file: the caller needs the path and
@@ -69,6 +75,17 @@ func Parse(path string) (Memory, error) {
 	defer f.Close()
 
 	m := Memory{Path: path, Base: filepath.Base(path)}
+
+	// Nothing bounds the size of a memory file: not the number of files, not the
+	// length of a line below 4 MiB, not the file itself. A memory this large is
+	// either a mistake or an attempt to crowd out a session's context, and both
+	// are worth saying out loud once. It is reported, never a reason to drop the
+	// file — the same rule every other format defect follows here.
+	if info, err := f.Stat(); err == nil && info.Size() > maxFileSize {
+		m.Problems = append(m.Problems, fmt.Sprintf(
+			"file is %d KB, far past the %d KB a memory needs; it will slow every sync and its description is truncated in the index",
+			info.Size()/1024, maxFileSize/1024))
+	}
 
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
