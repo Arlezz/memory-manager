@@ -582,3 +582,39 @@ func TestPushReportsUnreachableRemoteAsFailureNotConflict(t *testing.T) {
 		t.Errorf("error = %T (%v), want *ErrRebaseFailed", err, err)
 	}
 }
+
+// TestCloneRefusesOptionLikeRepo covers the argument injection an option-shaped
+// personal_repo used to achieve: without "--" terminating git's options, a value
+// beginning with "-" is parsed as a flag, and --upload-pack names a command git
+// runs. A config file is not a shell, so writing one must never gain execution.
+//
+// Both call sites are exercised: the branch-qualified clone runs first and the
+// plain clone is the fallback, so an empty branch reaches only the second.
+func TestCloneRefusesOptionLikeRepo(t *testing.T) {
+	requireGit(t)
+
+	for _, branch := range []string{"main", ""} {
+		name := "branch=" + branch
+		if branch == "" {
+			name = "branch=(none)"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			// git runs upload-pack with the process's working directory, so the
+			// sentinel would land here rather than in the package directory.
+			t.Chdir(dir)
+
+			cfg := config.Config{
+				PersonalRepo:   "--upload-pack=touch injected.txt",
+				PersonalBranch: branch,
+			}
+			if err := clone(cfg, filepath.Join(dir, "clone")); err == nil {
+				t.Fatal("clone succeeded on an option-shaped repo, want failure")
+			}
+
+			if _, err := os.Stat(filepath.Join(dir, "injected.txt")); err == nil {
+				t.Fatal("git executed the injected command: personal_repo was parsed as an option, not a URL")
+			}
+		})
+	}
+}

@@ -189,6 +189,9 @@ func cmdConfig(args []string) error {
 		cfg = config.Config{}
 	}
 	if *repo != "" {
+		if err := refuseOptionLikeRepo(*repo); err != nil {
+			return err
+		}
 		if err := refusePersonalRepoIsProject(*repo); err != nil {
 			return err
 		}
@@ -207,6 +210,28 @@ func cmdConfig(args []string) error {
 			"repository is private before the next push.")
 	}
 	return nil
+}
+
+// refuseOptionLikeRepo rejects a personal repository URL that git would read as
+// an option rather than a remote.
+//
+// Every argv element beginning with a dash is a flag to git, and --upload-pack
+// names a command git executes, so an option-shaped value turned writing a
+// config file into running a command on the next session start. The clones
+// terminate their options with "--", which is what actually closes that; this
+// refuses to record such a value at all, where the error can still say which
+// field is wrong instead of surfacing as a clone failure much later.
+//
+// The value is trimmed first because config.Load trims it before use: a leading
+// space must not smuggle the same string past this check.
+func refuseOptionLikeRepo(repo string) error {
+	if !strings.HasPrefix(strings.TrimSpace(repo), "-") {
+		return nil
+	}
+	return fmt.Errorf(
+		"refusing: %q starts with a dash, which git reads as an option rather than\n"+
+			"a repository URL. Use the full clone URL of your private memory repository",
+		repo)
 }
 
 // refusePersonalRepoIsProject rejects pointing the personal layer at the
