@@ -477,8 +477,8 @@ func printSyncSummary(w io.Writer, res sync.Result, dryRun, quiet bool) {
 	// Printed even under -quiet: this is memory that exists on one machine only,
 	// and session start is the one moment the user is reading this output.
 	if res.PersonalUnpushed > 0 {
-		fmt.Fprintf(w, "personal layer: %s committed but not pushed; run \"memory-manager push\"\n",
-			commitCount(res.PersonalUnpushed))
+		fmt.Fprintf(w, "personal layer: %s committed but not pushed; %s\n",
+			commitCount(res.PersonalUnpushed), unpushedAdvice(res.PersonalBehind, res.PersonalClone))
 	}
 	if !quiet {
 		fmt.Fprintln(w, res.MemoryDir)
@@ -508,8 +508,36 @@ func cmdStatus(args []string) error {
 		fmt.Printf("personal layer: %s committed but not pushed, from a run that stopped before the network step\n",
 			commitCount(plan.PersonalUnpushed))
 	}
+	if plan.PersonalBehind > 0 && plan.PersonalUnpushed > 0 {
+		fmt.Printf("\n%s\n", conflictAdvice(plan.PersonalBehind, plan.PersonalRoot))
+		return nil
+	}
 	fmt.Println("\nRun \"memory-manager push\" to send these to their layers.")
 	return nil
+}
+
+// unpushedAdvice returns what to do about commits the remote has not seen.
+//
+// A push is the answer only while the clone is purely ahead. Once it is also
+// behind, the push will fail on the rebase exactly as it did the first time,
+// and repeating the suggestion turns a conflict into a loop the user cannot
+// leave by following the instructions.
+func unpushedAdvice(behind int, clone string) string {
+	if behind == 0 {
+		return `run "memory-manager push"`
+	}
+	return conflictAdvice(behind, clone)
+}
+
+// conflictAdvice names the one thing that actually moves the situation forward.
+func conflictAdvice(behind int, clone string) string {
+	where := "the personal clone"
+	if clone != "" {
+		where = clone
+	}
+	return fmt.Sprintf(
+		"the remote has %s the clone does not, so a push cannot go through until the\n"+
+			"histories are reconciled by hand in %s", commitCount(behind), where)
 }
 
 // commitCount renders a commit count with its noun, so the one-commit case —

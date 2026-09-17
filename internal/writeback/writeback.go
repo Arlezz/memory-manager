@@ -85,6 +85,10 @@ type Plan struct {
 	// remote has not seen. They are not actions — there is nothing left to
 	// write — but they are memory that has not travelled yet.
 	PersonalUnpushed int
+	// PersonalBehind counts commits the remote has that the clone does not. Ahead
+	// and behind at once is a conflict, which a push cannot resolve — the advice
+	// printed for it has to differ, or the user is sent around a loop.
+	PersonalBehind int
 	// Warnings are plan-level problems worth showing the user.
 	Warnings []string
 }
@@ -158,11 +162,12 @@ func Build(dir string) (Plan, error) {
 		}
 		if repo.Present {
 			plan.PersonalRoot = repo.Path
-			if n, aheadErr := repo.Unpushed(); aheadErr != nil {
+			if n, behind, aheadErr := repo.Divergence(); aheadErr != nil {
 				plan.Warnings = append(plan.Warnings,
 					fmt.Sprintf("personal layer: cannot tell whether it is pushed: %v", aheadErr))
 			} else {
 				plan.PersonalUnpushed = n
+				plan.PersonalBehind = behind
 			}
 		}
 	}
