@@ -120,9 +120,13 @@ function main() {
     process.stderr.write(
       "memory-manager: binary not found, memory was not synced. " +
         "Install it with \"go install github.com/Arlezz/memory-manager/cmd/memory-manager@latest\" " +
-        "(Go 1.23+, with the Go bin directory on PATH), " +
+        "(Go 1.25.8+, with the Go bin directory on PATH), " +
         "or set MEMORY_MANAGER_BIN to a binary you already have.\n"
     );
+    // A missing binary is the likeliest of the three failures and the only one
+    // where nothing else runs afterwards to notice, so it has to be recorded
+    // here rather than on the spawn paths below.
+    recordFailure(subcommand, "binary not found, memory was not synced");
     process.exit(0);
   }
 
