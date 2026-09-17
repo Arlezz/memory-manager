@@ -186,3 +186,56 @@ func TestParseCRLF(t *testing.T) {
 		t.Errorf("Problems = %v, want none for CRLF input", m.Problems)
 	}
 }
+
+// TestParseReportsAnImplausibleFileSize is A-08. Nothing bounded the size of a
+// memory file, and a 4 MB one is reachable by anyone who can write to a layer.
+// It is reported, never dropped: that is the rule every format defect follows
+// here, and a dropped memory looks exactly like one that was never written.
+func TestParseReportsAnImplausibleFileSize(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "huge.md")
+	body := "---\nname: huge\ndescription: a plausible description\nmetadata:\n  type: project\n---\n\n" +
+		strings.Repeat("padding padding padding\n", 5000)
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := Parse(path)
+	if err != nil {
+		t.Fatalf("an oversized file must still parse: %v", err)
+	}
+	if m.Description != "a plausible description" {
+		t.Errorf("the memory was not parsed: %+v", m)
+	}
+
+	var found bool
+	for _, p := range m.Problems {
+		if strings.Contains(p, "KB") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no size problem reported; Problems = %v", m.Problems)
+	}
+}
+
+// TestParseSaysNothingAboutAnOrdinaryFile keeps the warning meaningful: one that
+// fires on a normal memory is noise, and noise gets ignored.
+func TestParseSaysNothingAboutAnOrdinaryFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "normal.md")
+	body := "---\nname: normal\ndescription: an ordinary memory\nmetadata:\n  type: project\n---\n\nA fact and its reasoning.\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := Parse(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range m.Problems {
+		if strings.Contains(p, "KB") {
+			t.Errorf("an ordinary memory was reported as oversized: %q", p)
+		}
+	}
+}
