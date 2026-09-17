@@ -67,9 +67,13 @@ func Open(cfg config.Config) (Repo, string, error) {
 // it has to work: the branch is requested when it can be, and otherwise the
 // clone is plain and the configured branch name is adopted locally so the first
 // push creates it.
+//
+// Both clones terminate git's options with "--". The URL comes from a config
+// file, and without it a value beginning with "-" is read as a flag rather than
+// a remote — "--upload-pack" alone turns writing that file into running a command.
 func clone(cfg config.Config, path string) error {
 	if cfg.PersonalBranch != "" {
-		if _, err := gitx.Run("", "clone", "--quiet", "--branch", cfg.PersonalBranch, cfg.PersonalRepo, path); err == nil {
+		if _, err := gitx.Run("", "clone", "--quiet", "--branch", cfg.PersonalBranch, "--", cfg.PersonalRepo, path); err == nil {
 			return nil
 		}
 		// Remove whatever a failed attempt left behind, or the retry refuses to
@@ -79,7 +83,7 @@ func clone(cfg config.Config, path string) error {
 		}
 	}
 
-	if _, err := gitx.Run("", "clone", "--quiet", cfg.PersonalRepo, path); err != nil {
+	if _, err := gitx.Run("", "clone", "--quiet", "--", cfg.PersonalRepo, path); err != nil {
 		return err
 	}
 
