@@ -526,3 +526,84 @@ func mustWrite(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+// poisonOrigin rewrites one manifest entry's origin. This is what a stale
+// manifest looks like from the code's point of view, and it is also the whole
+// of the tampering A-09 needs: the manifest is a plain local file.
+func (l *lab) poisonOrigin(name, origin string) {
+	l.t.Helper()
+	m, err := state.Load(slug)
+	if err != nil {
+		l.t.Fatalf("state.Load: %v", err)
+	}
+	e, ok := m.Entries[name]
+	if !ok {
+		l.t.Fatalf("no manifest entry for %s", name)
+	}
+	e.Origin = origin
+	m.Entries[name] = e
+	if err := state.Save(m); err != nil {
+		l.t.Fatalf("state.Save: %v", err)
+	}
+}
+
+// TestOriginOutsideTheLayersIsNotDeleted is the canary of A-09. A move deletes
+// the memory from the layer it came from, using the origin recorded in the
+// manifest. An origin pointing anywhere else must delete nothing.
+func TestOriginOutsideTheLayersIsNotDeleted(t *testing.T) {
+	l := newLab(t)
+	l.seed("note.md", "feedback", "started as personal", layer.Personal)
+
+	canary := filepath.Join(t.TempDir(), "canary.txt")
+	mustWrite(t, canary, "PRECIOUS")
+	l.poisonOrigin("note.md", canary)
+
+	// Declaring it project knowledge is what forces a move.
+	l.writeNative("note.md", "project", "turned out to be a team decision")
+
+	a := findAction(t, l.build(), "note.md")
+	if a.Change != Moved {
+		t.Fatalf("Change = %q, want moved", a.Change)
+	}
+	if a.DeleteFrom != "" {
+		t.Errorf("DeleteFrom = %q, want empty: that origin is inside no layer", a.DeleteFrom)
+	}
+
+	l.apply(Options{})
+	if _, err := os.Stat(canary); err != nil {
+		t.Fatalf("a file outside every layer was deleted: %v", err)
+	}
+}
+
+// TestOriginOutsideTheLayersIsNotWrittenTo covers the other consumer of the same
+// field, which the audit did not name: an update writes the memory back to its
+// recorded origin, so a poisoned origin overwrites that file with the memory.
+func TestOriginOutsideTheLayersIsNotWrittenTo(t *testing.T) {
+	l := newLab(t)
+	l.seed("note.md", "feedback", "personal from the start", layer.Personal)
+
+	canary := filepath.Join(t.TempDir(), "canary.txt")
+	mustWrite(t, canary, "PRECIOUS")
+	l.poisonOrigin("note.md", canary)
+
+	// Same layer, new content: an update, not a move.
+	l.writeNative("note.md", "feedback", "edited during the session")
+
+	a := findAction(t, l.build(), "note.md")
+	if a.Change != Updated {
+		t.Fatalf("Change = %q, want updated", a.Change)
+	}
+	want := filepath.Join(l.personalDir, "projects", slug, "note.md")
+	if a.Dest != want {
+		t.Errorf("Dest = %q, want the recomputed layer path %q", a.Dest, want)
+	}
+
+	l.apply(Options{})
+	got, err := os.ReadFile(canary)
+	if err != nil {
+		t.Fatalf("reading the canary: %v", err)
+	}
+	if string(got) != "PRECIOUS" {
+		t.Error("a file outside every layer was overwritten with a memory")
+	}
+}

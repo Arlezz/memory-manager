@@ -16,6 +16,7 @@ import (
 	"github.com/Arlezz/memory-manager/internal/claudedir"
 	"github.com/Arlezz/memory-manager/internal/config"
 	"github.com/Arlezz/memory-manager/internal/frontmatter"
+	"github.com/Arlezz/memory-manager/internal/fsx"
 	"github.com/Arlezz/memory-manager/internal/identity"
 	"github.com/Arlezz/memory-manager/internal/index"
 	"github.com/Arlezz/memory-manager/internal/layer"
@@ -94,7 +95,7 @@ func archive(slug, name, src string) error {
 		ext := filepath.Ext(name)
 		dest = filepath.Join(dir, fmt.Sprintf("%s.%d%s", strings.TrimSuffix(name, ext), i, ext))
 	}
-	return os.WriteFile(dest, data, 0o644)
+	return fsx.WriteFile(dest, data, 0o644)
 }
 
 // Options configures a sync.
@@ -325,7 +326,7 @@ func Run(opts Options) (Result, error) {
 			}
 		}
 
-		if err := os.WriteFile(dst, content, 0o644); err != nil {
+		if err := fsx.WriteFile(dst, content, 0o644); err != nil {
 			res.Warnings = append(res.Warnings, fmt.Sprintf("%s: %v", name, err))
 			continue
 		}

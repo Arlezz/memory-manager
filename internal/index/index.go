@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/Arlezz/memory-manager/internal/frontmatter"
+	"github.com/Arlezz/memory-manager/internal/fsx"
 	"github.com/Arlezz/memory-manager/internal/layer"
 )
 
@@ -89,5 +90,5 @@ func Write(dir string, memories []frontmatter.Memory) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(Render(memories)), 0o644)
+	return fsx.WriteFile(path, []byte(Render(memories)), 0o644)
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/Arlezz/memory-manager/internal/claudedir"
 	"github.com/Arlezz/memory-manager/internal/config"
 	"github.com/Arlezz/memory-manager/internal/frontmatter"
+	"github.com/Arlezz/memory-manager/internal/fsx"
 	"github.com/Arlezz/memory-manager/internal/identity"
 	"github.com/Arlezz/memory-manager/internal/layer"
 	"github.com/Arlezz/memory-manager/internal/personal"
@@ -241,11 +242,15 @@ func Apply(plan Plan, allowSecrets bool) (written int, skipped int, err error) {
 			if mkErr := os.MkdirAll(filepath.Dir(a.Dest), 0o755); mkErr != nil {
 				return written, skipped, mkErr
 			}
-			if wErr := os.WriteFile(a.Dest, data, 0o644); wErr != nil {
+			if wErr := fsx.WriteFile(a.Dest, data, 0o644); wErr != nil {
 				return written, skipped, wErr
 			}
 			written++
-			if strings.HasPrefix(a.Dest, plan.PersonalRoot) && plan.PersonalRoot != "" {
+			// A path boundary, not a string prefix: ".../personal-other" has
+			// ".../personal" as a prefix without being inside it. This is the
+			// same check writeback makes, and the two must not disagree about
+			// what belongs to the personal clone.
+			if fsx.Within(plan.PersonalRoot, a.Dest) {
 				personalWrites = append(personalWrites, a.Dest)
 			}
 		}

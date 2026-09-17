@@ -21,6 +21,7 @@ import (
 	"github.com/Arlezz/memory-manager/internal/claudedir"
 	"github.com/Arlezz/memory-manager/internal/config"
 	"github.com/Arlezz/memory-manager/internal/frontmatter"
+	"github.com/Arlezz/memory-manager/internal/fsx"
 	"github.com/Arlezz/memory-manager/internal/identity"
 	"github.com/Arlezz/memory-manager/internal/layer"
 	"github.com/Arlezz/memory-manager/internal/personal"
@@ -217,12 +218,12 @@ func classify(m frontmatter.Memory, manifest state.Manifest, id identity.Identit
 		// Without the delete it would exist in both.
 		a.Change = Moved
 		a.FromLayer = layer.Layer(entry.Layer)
-		a.DeleteFrom = entry.Origin
+		a.DeleteFrom = originWithin(entry, personalRoot, projectRoot)
 	default:
 		a.Change = Updated
 		// Write back exactly where it came from, which preserves whether it was
 		// global or project-scoped inside the personal repo.
-		a.Dest = entry.Origin
+		a.Dest = originWithin(entry, personalRoot, projectRoot)
 	}
 
 	if a.Dest == "" {
@@ -268,10 +269,30 @@ func deletions(manifest state.Manifest, seen map[string]bool, plan *Plan) []Acti
 			Base:       name,
 			Change:     Removed,
 			Layer:      layer.Layer(entry.Layer),
-			DeleteFrom: entry.Origin,
+			DeleteFrom: originWithin(entry, plan.PersonalRoot, plan.ProjectRoot),
 		})
 	}
 	return out
+}
+
+// originWithin returns the recorded origin when it still points inside one of
+// the layer roots, and "" when it does not.
+//
+// The manifest is the one input that becomes a filesystem path without passing
+// through the walk that produced it: Origin is an absolute path that reaches
+// os.Remove on a move or a deletion, and os.WriteFile on an update. A stale one
+// is not hypothetical — ForPersonalRepo exists because origins go stale — and a
+// stale path that happens to name a real file would see that file deleted, or
+// overwritten with the contents of a memory.
+//
+// Returning "" is safe in every caller: a deletion with no path deletes nothing
+// and still drops the manifest entry, and an update with no destination falls
+// through to destination(), which recomputes it from the roots.
+func originWithin(entry state.Entry, personalRoot, projectRoot string) string {
+	if fsx.Within(personalRoot, entry.Origin) || fsx.Within(projectRoot, entry.Origin) {
+		return entry.Origin
+	}
+	return ""
 }
 
 // destination returns the layer path a memory should be written to.
@@ -515,7 +536,7 @@ func (a Action) execute() error {
 	if err := os.MkdirAll(filepath.Dir(a.Dest), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(a.Dest, content, 0o644)
+	return fsx.WriteFile(a.Dest, content, 0o644)
 }
 
 // record updates the manifest so the next sync and the next push agree with what
@@ -547,8 +568,11 @@ func (a Action) personalRelPaths(root string) []string {
 		if p == "" {
 			continue
 		}
+		if !fsx.Within(root, p) {
+			continue
+		}
 		rel, err := filepath.Rel(root, p)
-		if err != nil || strings.HasPrefix(rel, "..") {
+		if err != nil {
 			continue
 		}
 		out = append(out, filepath.ToSlash(rel))

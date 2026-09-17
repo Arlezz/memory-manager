@@ -160,3 +160,41 @@ func TestNamesAreSorted(t *testing.T) {
 		}
 	}
 }
+
+// TestLoadDropsEntriesThatAreNotPlainFileNames covers the key half of A-09.
+// Entry keys are joined onto a layer root and reach os.WriteFile and os.Remove,
+// and Load is the only place that sees them before they become paths. A sync
+// can only produce keys that came from filepath.Base, so anything else did not
+// come from a sync.
+func TestLoadDropsEntriesThatAreNotPlainFileNames(t *testing.T) {
+	isolate(t)
+
+	m := Manifest{
+		Slug: "test__project",
+		Entries: map[string]Entry{
+			"keep.md":          {Layer: "personal", Origin: "/clone/global/keep.md"},
+			"../escape.md":     {Layer: "personal", Origin: "/clone/global/escape.md"},
+			`..\escape.md`:     {Layer: "personal", Origin: "/clone/global/escape.md"},
+			"global/nested.md": {Layer: "personal", Origin: "/clone/global/nested.md"},
+			`sub\nested.md`:    {Layer: "personal", Origin: "/clone/global/nested.md"},
+			"/etc/passwd":      {Layer: "personal", Origin: "/etc/passwd"},
+			"..":               {Layer: "personal", Origin: "/clone"},
+			".":                {Layer: "personal", Origin: "/clone"},
+			"":                 {Layer: "personal", Origin: "/clone"},
+		},
+	}
+	if err := Save(m); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Load(m.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Entries) != 1 {
+		t.Errorf("kept %d entries, want only the plain file name: %v", len(got.Entries), got.Names())
+	}
+	if _, ok := got.Entries["keep.md"]; !ok {
+		t.Error("the legitimate entry was dropped too")
+	}
+}
