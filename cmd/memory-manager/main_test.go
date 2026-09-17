@@ -112,3 +112,37 @@ func TestSyncSummaryReportsRemovalsAndPreservedEdits(t *testing.T) {
 		}
 	}
 }
+
+// TestRefuseOptionLikeRepo covers the config half of the argument injection.
+// git reads any argv element beginning with "-" as an option, and --upload-pack
+// names a command it runs, so an option-shaped personal_repo turned writing a
+// config file into running a command. The clones terminate their options with
+// "--", which is what closes the hole; this refuses to record the value at all,
+// while the error can still name the field the user got wrong.
+func TestRefuseOptionLikeRepo(t *testing.T) {
+	refused := []string{
+		"--upload-pack=touch PWNED.txt",
+		"-u",
+		"--config=core.sshCommand=touch x",
+		// config.Load trims before use, so a leading space must not smuggle the
+		// same value past this check.
+		"  --upload-pack=touch PWNED.txt",
+	}
+	for _, repo := range refused {
+		if err := refuseOptionLikeRepo(repo); err == nil {
+			t.Errorf("refuseOptionLikeRepo(%q) = nil, want an error", repo)
+		}
+	}
+
+	accepted := []string{
+		"https://github.com/acme-dev/orbit-x-memory.git",
+		"git@github.com:acme-dev/orbit-x-memory.git",
+		"ssh://git@gitlab.example.com:2222/acme-dev/orbit-x-memory.git",
+		"gitlab@gitlab.example.com:acme-dev/orbit-x-memory.git",
+	}
+	for _, repo := range accepted {
+		if err := refuseOptionLikeRepo(repo); err != nil {
+			t.Errorf("refuseOptionLikeRepo(%q) = %v, want nil", repo, err)
+		}
+	}
+}
