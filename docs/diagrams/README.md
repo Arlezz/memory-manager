@@ -10,7 +10,10 @@ in any browser) and a portable `.svg`.
 | `architecture-slide-16x9` | 1280×720 | presentation (16px names) | projected decks |
 
 Built with the [diagram-design](https://github.com/cathrynlavery/diagram-design) Claude Code plugin,
-default editorial skin (white-smoke paper, atomic-tangerine accent).
+on a slate-and-teal skin: cool paper `#f7f9fa`, ink `#1f2937`, teal accent `#0f766e`. The tokens are
+the semantic roles the plugin's style guide defines, so the accent still marks exactly one focal
+node — the merged directory — and nothing else. The shipped default is white-smoke paper with an
+atomic-tangerine accent; teal reads technical rather than promotional.
 
 ## Regenerating
 

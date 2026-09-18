@@ -16,19 +16,28 @@ import html
 import pathlib
 import sys
 
-# --- tokens (default skin from references/style-guide.md) --------------------
-PAPER = "#f5f5f5"
-INK = "#2d3142"
-MUTED = "#4f5d75"
-ACCENT = "#eb6c36"
-SOFT = "rgba(45,49,66,0.45)"
-RULE = "rgba(45,49,66,0.10)"
+# --- tokens (slate & teal skin, semantic roles per references/style-guide.md) -
+#
+# The shipped default is white-smoke paper with an atomic-tangerine accent. This
+# swaps the accent for teal, which reads technical rather than promotional, and
+# cools the paper and ink to match it. The roles are unchanged: accent still
+# marks one focal node and nothing else, or it stops meaning anything.
+#
+# The rgba values are INK at an opacity, so they follow INK rather than drifting
+# into a second near-black of their own.
+PAPER = "#f7f9fa"
+INK = "#1f2937"
+MUTED = "#64748b"
+ACCENT = "#0f766e"
+LINK = "#1d4ed8"
+SOFT = "rgba(31,41,55,0.45)"
+RULE = "rgba(31,41,55,0.10)"
 
-STORE_FILL = "rgba(45,49,66,0.05)"
+STORE_FILL = "rgba(31,41,55,0.05)"
 STORE_STROKE = MUTED
 AGENT_FILL = "#ffffff"
 AGENT_STROKE = INK
-FOCAL_FILL = "rgba(235,108,54,0.10)"
+FOCAL_FILL = "rgba(15,118,110,0.10)"
 FOCAL_STROKE = ACCENT
 
 # --- size presets -----------------------------------------------------------
@@ -323,7 +332,7 @@ def build(preset_name):
       <defs>
         <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="{MUTED}"/></marker>
         <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="{ACCENT}"/></marker>
-        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="{LINK}"/></marker>
       </defs>
 
       <rect width="100%" height="100%" fill="{PAPER}"/>
