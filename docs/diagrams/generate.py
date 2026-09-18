@@ -16,19 +16,36 @@ import html
 import pathlib
 import sys
 
-# --- tokens (default skin from references/style-guide.md) --------------------
-PAPER = "#f5f5f5"
-INK = "#2d3142"
-MUTED = "#4f5d75"
-ACCENT = "#eb6c36"
-SOFT = "rgba(45,49,66,0.45)"
-RULE = "rgba(45,49,66,0.10)"
+# --- tokens (Ember skin, light column) ---------------------------------------
+#
+# The project is bound to the "ember" diagram-design profile by the
+# .diagram-design marker at the repository root; the canonical values live in
+# ~/.diagram-design/profiles/ember.md. They are repeated here because
+# generate.py has to run without reading that file.
+#
+# The skin was sampled from a reference image rather than a brand site: paper
+# and ink are the two colours covering 83% of it, and the accent is its most
+# saturated. That image is the dark column; these are its light counterparts,
+# derived by the profile's inversion rule — RGB flipped, opacities kept.
+#
+# Checked rather than assumed: ink is 14.96:1 on paper and muted is 5.21:1,
+# both above the AA floor the style guide requires.
+#
+# The rgba values are INK at an opacity, so they follow INK rather than drifting
+# into a second near-black of their own.
+PAPER = "#f4eddf"
+INK = "#201818"
+MUTED = "#6b6154"
+ACCENT = "#c95d2e"
+LINK = "#2f7d7d"
+SOFT = "rgba(32,24,24,0.45)"
+RULE = "rgba(32,24,24,0.10)"
 
-STORE_FILL = "rgba(45,49,66,0.05)"
+STORE_FILL = "rgba(32,24,24,0.05)"
 STORE_STROKE = MUTED
 AGENT_FILL = "#ffffff"
 AGENT_STROKE = INK
-FOCAL_FILL = "rgba(235,108,54,0.10)"
+FOCAL_FILL = "rgba(201,93,46,0.10)"
 FOCAL_STROKE = ACCENT
 
 # --- size presets -----------------------------------------------------------
@@ -323,7 +340,7 @@ def build(preset_name):
       <defs>
         <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="{MUTED}"/></marker>
         <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="{ACCENT}"/></marker>
-        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="{LINK}"/></marker>
       </defs>
 
       <rect width="100%" height="100%" fill="{PAPER}"/>
