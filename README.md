@@ -78,7 +78,7 @@ personal layer ──┴─► merged ┴──► diff ─┤   work tree, NOT 
 go install github.com/Arlezz/memory-manager/cmd/memory-manager@latest
 ```
 
-Needs Go 1.23+, and your Go bin directory on `PATH` so the plugin's hook launcher can find the
+Needs Go 1.25.8+, and your Go bin directory on `PATH` so the plugin's hook launcher can find the
 result. There are no third-party dependencies to fetch.
 
 > **Until the first release is tagged, this is the only install that works.** `npm install -g

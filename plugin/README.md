@@ -27,7 +27,7 @@ The plugin is distributed as source, so it cannot carry a per-platform binary. I
 go install github.com/Arlezz/memory-manager/cmd/memory-manager@latest
 ```
 
-Needs Go 1.23+. Until the first release is tagged this is the only install that works — the npm
+Needs Go 1.25.8+. Until the first release is tagged this is the only install that works — the npm
 package (`memory-manager-cli`) is not published yet, and the install scripts download from GitHub
 releases that do not exist. Both arrive with the first tag.
 
