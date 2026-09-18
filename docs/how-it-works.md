@@ -10,7 +10,7 @@ go install github.com/Arlezz/memory-manager/cmd/memory-manager@latest
 memory-manager config -personal-repo git@github.com:you/claude-memory.git
 ```
 
-`go install` needs Go 1.23+ and your Go bin directory on `PATH`. It is the only install that works
+`go install` needs Go 1.25.8+ and your Go bin directory on `PATH`. It is the only install that works
 until the first release is tagged; `npm install -g memory-manager-cli` and the install scripts both
 arrive with that tag.
 
