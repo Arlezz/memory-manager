@@ -9,8 +9,19 @@ in any browser) and a portable `.svg`.
 | `architecture-doc-wide` | 1280×720 | standard | full-width wiki pages |
 | `architecture-slide-16x9` | 1280×720 | presentation (16px names) | projected decks |
 
-Built with the [diagram-design](https://github.com/cathrynlavery/diagram-design) Claude Code plugin,
-default editorial skin (white-smoke paper, atomic-tangerine accent).
+Built with the [diagram-design](https://github.com/cathrynlavery/diagram-design) Claude Code plugin
+on the **Ember** skin: bone paper `#f4eddf`, ink `#201818`, ember accent `#c95d2e`.
+
+The skin is sampled rather than invented. Its dark column is measured from a reference image — the
+two colours covering 83% of it became `paper` and `ink`, its most saturated became `accent` — and
+the light column used here is derived from that by the plugin's own inversion rule, RGB flipped and
+opacities kept. Contrast was checked: `ink` is 14.96:1 on `paper` and `muted` is 5.21:1, both above
+the AA floor the style guide requires.
+
+The canonical tokens live in the named profile at `~/.diagram-design/profiles/ember.md`, and the
+`.diagram-design` marker at the repository root binds this project to it, so the next diagram
+inherits the skin instead of reverting to the plugin's shipped default. `generate.py` repeats the
+values because it has to run without reading that file; if you change one, change both.
 
 ## Regenerating
 
