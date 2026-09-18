@@ -19,10 +19,7 @@ c:\Users\a\repos\nova-core   ->  c--Users-a-repos-nova-core   # same project, di
 
 `memory-manager` keys memory by the **normalized git remote** instead.
 
-![Two memory layers merged into the directory Claude Code reads, keyed by the normalized git remote](docs/diagrams/architecture.svg)
-
-> [Open the interactive version](docs/diagrams/architecture.html) to trace a relationship, search
-> the components, or switch themes. Download it and open it locally — GitHub will not run it.
+![Two memory layers merged into the directory Claude Code reads, keyed by the normalized git remote](docs/diagrams/architecture-doc-inline.svg)
 
 ## The two layers
 
