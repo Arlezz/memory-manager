@@ -1,67 +1,81 @@
 ---
 name: memory-manager-status
-description: "memory-manager as of 2026-08-30 — both halves of the cycle built, published publicly; what is still unverified and the open design question"
+description: "memory-manager as of 2026-09-17 - security audit remediated and merged, the cycle verified end to end, and v0.1.0 released from a pipeline that had never run before"
 metadata: 
   node_type: memory
   type: project
   originSessionId: 4a902265-6735-48e3-8379-d9bfd8bb2e36
-  modified: 2026-08-31T03:17:44.447Z
+  modified: 2026-09-18T01:20:19.000Z
 ---
 
 State of [[memory-manager-goal]]. Anton's personal open-source actions live separately in [[memory-manager-open-actions]], which is deliberately kept out of this public tree.
 
-Both halves of the cycle are built: `sync` at SessionStart and `push` at SessionEnd, plus `identity`, `init`, `config`, `migrate`, `status`. Packaged as a Claude Code plugin and for npm. Docs are `docs/architecture.md`, `docs/how-it-works.md`, `docs/security.md`, and the architecture diagram at three size presets in `docs/diagrams/`. Design rationale lives in [[memory-manager-tech-decisions]]; the code and README record the rest, so it is not repeated here.
+Both halves of the cycle are built: `sync` at SessionStart and `push` at SessionEnd, plus `identity`, `init`, `config`, `migrate`, `status`. Packaged as a Claude Code plugin and for npm. Docs are `docs/architecture.md`, `docs/how-it-works.md`, `docs/security.md`, and the architecture diagram at three size presets in `docs/diagrams/`. Design rationale lives in [[memory-manager-tech-decisions]]; the code and README record the rest.
 
-**Published 2026-08-30** at `github.com/Arlezz/memory-manager`, a **public** repo — which is why [[memory-manager-no-employer-names]] exists. Six commits, 110 tests, `gofmt`/`go vet` clean, **CI green on Ubuntu, Windows and macOS**.
+**Published 2026-08-30** at `github.com/Arlezz/memory-manager`, a **public** repo — which is why [[memory-manager-no-employer-names]] exists.
 
-The first CI run ever to execute failed, and it caught a real bug rather than a flake: `Push` ran `pull --rebase` without the per-command git identity that `Commit` passed, so on any machine with no global git identity — every runner, any fresh checkout — the rebase failed, and the code then reported it as a conflict that did not exist. Fixed in `a168d8d`: one shared `gitIdentity`, and a new `ErrRebaseFailed` so an unreachable remote is no longer called a conflict. Two regression tests pin it, one of them running with `GIT_CONFIG_GLOBAL` pointed at the null device. **Lesson worth keeping: a green local suite proved nothing here, because the bug was in what the development machine happened to have configured.**
+## The security audit is remediated — 2026-09-17
 
-Two CI warnings, neither failing: `actions/checkout@v4` and `actions/setup-go@v5` still target Node 20, and the Go cache step looks for a `go.sum` this repo does not have (zero dependencies).
+A full security and quality audit ran on 2026-09-02 against `8300212` and found 17 confirmed findings: one critical, four high, seven medium, five low. The report itself is deliberately **not in the repo** — `/auditoria/` is gitignored, because it names the real personal repository and quotes real state paths. It carries its own remediation status table at the end.
 
-GitHub push protection rejected the first push attempt over the synthetic `glpat-`-shaped fixtures in three test files. They were always fake, but the shape matched. They are now split across a compile-time concatenation, and the history was rewritten so no commit carries the shape. **Any new token-shaped fixture must use the same trick** or the push will be blocked again.
+Sixteen were closed across six PRs and are merged into `main`. Four points were deferred on purpose, as decisions rather than code: the index cap (A-07), a `purge` command for git history (A-06), Windows ACLs (A-11), and the coverage of `claudedir` and `layer` (A-16).
 
-## Release prerequisites, before the first tag
+What the critical one was: `git clone` received the configured personal repo URL as a bare argv element with no `--` terminating git's options, so a value beginning with a dash was read as a flag — and `--upload-pack` names a command git runs. **Writing a config file was execution at the next session start.** Closed by terminating the options in both clones and refusing to record an option-shaped value at all.
 
-- Check the npm names are free: `memory-manager-cli` and the `@memory-manager` scope. `scripts/publish-npm.sh` and `package.json` both assume them.
-- `NPM_TOKEN` has to exist as a repo secret, or the npm job in `release.yml` skips itself silently.
+The four declared no-gos are now covered: execution (A-01), losing a memory (A-04, A-09), leaking a secret (A-03, A-05, A-11), and a poisoned memory reaching the context (A-02, A-08).
 
-## Unverified, and known to be unverified
+Where the fixes departed from the report, and why, is recorded in the report's own remediation section. The pattern worth remembering: **twice the report recommended something broader than the problem**, and narrowing it was right both times — a blanket fail-closed would have made `config` unusable outside a git repo, and blocking on unterminated frontmatter would have fought an explicit design rule while the atomic write already removed the cause.
 
-**Nobody has looked at the architecture diagram render.** Playwright is not installed and the Claude-in-Chrome extension was not connected on 2026-08-28, so there was no way to see it. The geometry assertions in `docs/diagrams/generate.py` and the plugin's `self_check.py` cover the mechanical rules — mask overlaps, corridor fits, attach spacing, the accessible-SVG contract — but not whether it looks good. One change was made on suspicion rather than sight: the focal box's copy was split into two blocks because 328px of height held only ~54px of centred text. `pip install playwright && playwright install chromium` (~150MB) unlocks both the PNG exports and the ability to look at it.
+## Verified end to end — 2026-09-17
 
-**The hook path is verified as of 2026-08-30.** Both subcommands were run through `plugin/hooks/launch.js` exactly as the plugin declares them — from a neutral working directory, with `CLAUDE_PROJECT_DIR` set, resolving the binary from `~/.claude/memory-manager/bin/`. `sync` merged and correctly refused to overwrite two locally edited memories; `push` wrote 6 project memories into the work tree without committing them and pushed 3 personal ones to the private repo (`75a8aa1`). Both exited 0.
+The whole cycle was exercised on a disposable bench with two devices, each with its own `CLAUDE_CONFIG_DIR` and **the same project checked out at two different paths**, which is the thing this tool exists to make work. Create, push, arrive on the second device, edit there, arrive back, delete, propagate, archive before deleting, and no resurrection on the next sync. Fifteen of the sixteen fixes were confirmed against the installed binary, not just in tests.
 
-**The marketplace install is verified for `sync` as of 2026-08-30.** The plugin was installed at user scope from the marketplace (commit `483023b`, `installPath` under `plugins/cache/memory-manager/`) and a new session was started. The SessionStart hook fired: `state/github.com__arlezz__memory-manager.json` and `MEMORY.md` were both rewritten at session start, and the merged index carried personal-layer memories that exist nowhere in the work tree. 13 memories, 7 personal and 6 project.
+**Testing found a real defect in the remediation itself.** The A-15 fix recorded hook failures to `last-error.log` on the two spawn paths but not on the earliest exit — no binary found — which is the failure a new or broken install actually produces. Fixed in a follow-up PR. The lesson repeats one already in this file: the suite passing proves less than running the thing.
 
-**`push` at a genuine SessionEnd fires, does the work, and then gets cut off before `git push`.** Tested 2026-08-30 with a real headless session (`claude -p`, CLI 2.1.251) in the project directory, with one new personal memory pending. Claude Code printed `SessionEnd hook [node "${CLAUDE_PLUGIN_ROOT}/hooks/launch.js" push] failed: Hook cancelled`, yet the binary had already copied the memory into the personal layer and committed it (`0eff574`, "memory: 1 written"). The repo was left **ahead 1** — the commit existed locally and the remote never received it, so a second machine would have seen nothing. The commit had to be pushed by hand. The 60s timeout was not the cause; the whole session lasted seconds. The cancellation lands on the last and slowest step, the network one.
+## Lessons that keep earning their place
 
-This is the dangerous shape for a sync tool: the local side looks complete, `status` reports nothing pending, and the memory is still stranded. It happened a second time in ordinary use — `287df87`, found on 2026-08-30 only because the clone was inspected by hand.
+**A green local suite proves nothing about CI.** It happened twice now. First on 2026-08-30: `Push` ran `pull --rebase` without the per-command git identity, so it failed on any machine with no global git identity — every runner — and the code called it a conflict that did not exist. Then again on 2026-09-17: a fix passed locally and failed on all three runners because `t.Chdir` needs Go 1.24 and CI pinned 1.23. **That second one was the audit's own CI finding demonstrating itself**, and it is why the toolchain PR was merged before the code PRs, against the planned order.
 
-**The stranded commit is now detected and self-healing, as of `74bb55a` (2026-08-30).** `personal.Repo.Unpushed` counts commits the remote-tracking branch lacks, from local refs only. `writeback.Plan.Settled` splits "nothing to write" from "nothing waiting", and the callers that used `Empty` to decide they were done now use `Settled`. `Apply` gained a push-only path, so the next `push` publishes a stranded commit even with an empty plan instead of walking past it forever. The count prints in the sync summary at session start (surviving `-quiet`), in `status`, and in `push`; `status` also answers `memory: nothing waiting` instead of printing nothing. The binary installed at `~/.claude/memory-manager/bin/` was rebuilt at this commit.
+**GitHub push protection is active on this repo, and it blocks at push time.** It rejected the first push on 2026-08-30 over synthetic `glpat-`-shaped fixtures, which were split across a compile-time concatenation. It rejected another on 2026-09-17 over Slack-token and Stripe-key shapes in a new test corpus; those were rewritten as de-vendored synthetic values instead. **Either trick works — the point is that a token-shaped literal never reaches a commit.** The "allow secret" escape hatch was deliberately not used: marking fake secrets as allowed pollutes the repo's alerts permanently.
 
-The cancellation itself is not fixed — it is Claude Code's, not this tool's. What changed is that it is now survivable. Whether an interactive session exit is cancelled the same way as `-p` is still unknown, and still needs a pending personal memory at exit to find out; it now matters much less.
+**The SessionEnd hook is cancelled as a matter of routine, on the network step.** Confirmed headless on 2026-08-30 and interactively on 2026-08-31: the binary copies the memory into the personal layer and commits it, then Claude Code prints `Hook cancelled` before `git push` runs. The clone is left ahead, `status` used to report nothing, and a second machine would see nothing. This is the dangerous shape for a sync tool: the local side looks finished.
 
-## Next design question, not yet opened
+It is not fixed, because it is Claude Code's, not this tool's — it is **survivable**. `74bb55a` detects the stranded commit from local refs and the next `push` publishes it even with an empty plan. As of 2026-09-17 the advice printed alongside that count also distinguishes "waiting to be sent" from "in conflict", which a push cannot resolve; the old message sent the user around a loop.
 
-Iteration 4 has two candidates and no decision: a self-hosted server with semantic search over the same markdown files, and a trimming policy for `MEMORY.md` past ~200 memories. Auto-commit granularity for the personal layer stays at one commit per session until there is real noise to measure.
+**The project layer had no unavailability guard, and six project memories were lost.** Recovered from Claude Code's `file-history/` and a session transcript. `layer.Read` reports a missing directory as an empty one, so an absent `.claude/memory` was indistinguishable from a deliberate wipe. Fixed in `483023b`: the same guard as the personal layer, a warning naming the missing directory, and an archive under `~/.claude/memory-manager/removed/<slug>/<date>/` written before any deletion — a file that cannot be archived is not deleted at all.
 
-**Why:** the code is done; what is left is either external action or a design call, so a session should not start by writing code.
+## v0.1.0 is released — 2026-09-17
 
-**How to apply:** do not re-verify the test suite or re-read the architecture — both are committed and documented. Start from [[memory-manager-open-actions]] instead, since most of this is blocked behind it.
+The first tag ever, on `d7b40f5`. Until it existed there were no downloadable binaries and no npm package, so `install.ps1` / `install.sh` could not work for anyone and building from source was the only path.
 
-## Fixed 2026-08-30: the project layer had no unavailability guard
+`release.yml` had **never executed**, so the tag was also the only way to find out whether it worked. It did, on the first run: three-OS tests with `-race`, six cross-compiled targets, `SHA256SUMS`, and the release published. The npm job skipped itself cleanly because `NPM_TOKEN` is absent, which is the designed behaviour and not a failure.
 
-Six project memories were deleted from disk with no backup and had to be
-recovered from Claude Code's `file-history/` and a session transcript.
-`layer.Read` reports a missing directory as an empty one, so an absent
-`.claude/memory` was indistinguishable from every project memory having been
-deleted on purpose. The personal layer had a guard against exactly this; the
-project layer did not, and `push` then propagated the removals into the layer,
-emptying both.
+Verified rather than assumed: the published Windows binary was downloaded back, its checksum matched `SHA256SUMS`, and it ran and reported `v0.1.0`.
 
-Fixed in `483023b`. The project layer gets the same treatment, and the warning
-names the missing directory so the two cases can be told apart. Removal also
-archives every file under `~/.claude/memory-manager/removed/<slug>/<date>/`
-first, and a file that cannot be archived is not deleted at all — keeping a
-stale memory costs a duplicate, losing one costs the fact. Two regression tests
-cover the case that actually happened.
+The release notes are hand-written, not generated — with no previous tag the generated ones would have listed the entire history. They say what the tool does, what it needs, and the three limitations a user deserves up front: the cancelled SessionEnd hook, that deleting a memory leaves it in git history, and that the index grows without bound.
+
+npm is deliberately not part of it. Both names — `memory-manager-cli` and the `@memory-manager` scope — **were confirmed free on 2026-09-17**, but publishing to a registry is irreversible in a way a tag is not, and one untested pipeline at a time is enough. Reserving the names is in [[memory-manager-open-actions]].
+
+## The plugin and the binary update separately, and both were done
+
+The binary at `~/.claude/memory-manager/bin/` was rebuilt from current `main` on 2026-09-17 with the release flags. The plugin is a separate thing: the hooks run `launch.js` out of the marketplace cache, which pins whatever commit it was installed from, so fifteen of the sixteen fixes were live through the binary while **A-15 sat in the launcher, unreachable**.
+
+Both are current now — `claude plugin marketplace update memory-manager` followed by `claude plugin update memory-manager@memory-manager` moved the cache from `830021217fc6` to `d7b40f5f324a`. **The two halves drift independently and neither updates the other**, so after any change to `plugin/` the plugin needs its own update, and a change to `cmd/` or `internal/` needs the binary rebuilt. See [[plugin-cache-pins-a-commit]].
+
+## One gap nothing covers
+
+**CI does not check `launch.js` in any way**, not even `node --check`. There is no JS test infrastructure at all — `package.json` declares no test script. The audit read the launcher but never measured its coverage, so this is not one of its findings. It belongs with the deferred half of A-16.
+
+## Still unverified
+
+**Nobody has looked at the architecture diagram render.** Playwright is not installed. The geometry assertions in `docs/diagrams/generate.py` and the plugin's `self_check.py` cover the mechanical rules — mask overlaps, corridor fits, attach spacing, the accessible-SVG contract — but not whether it looks good. One change was made on suspicion rather than sight: the focal box's copy was split in two because 328px of height held only ~54px of centred text. `pip install playwright && playwright install chromium` (~150MB) unlocks the PNG exports and the ability to look at it.
+
+## The open design question
+
+A-07 gave the deferred index question a number: at 10,001 memories a sync takes 34s against a 60s hook timeout, and `MEMORY.md` reaches 717 KB — roughly 180,000 tokens of context before the conversation starts. Truncating each description (done, A-08) bounds the size per entry; it does not bound the number of entries. The candidates remain a trimming policy for `MEMORY.md` and a self-hosted server with semantic search over the same markdown files. See [[memory-manager-scope-decisions]].
+
+Auto-commit granularity for the personal layer stays at one commit per session until there is real noise to measure.
+
+**Why:** the audit is closed and the cycle is proven, so the next session should not start by re-verifying either. What is left is a release, a design call, and the deferred four.
+
+**How to apply:** do not re-run the suite or re-read the architecture to get oriented — both are committed, and the audit report carries its own remediation table. Start from the release prerequisites above, or from [[memory-manager-open-actions]].
