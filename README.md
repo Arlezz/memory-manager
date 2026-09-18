@@ -38,7 +38,11 @@ with one line while the default stays conservative.
 
 ## Status
 
-The cycle is closed: memory comes in at session start and goes back out at session end.
+**v0.1.0** is released. The cycle is closed: memory comes in at session start and goes back out at
+session end, and the code has been through a full security audit whose findings are fixed and
+merged — including one path to command execution, where a repository URL beginning with a dash was
+read by `git clone` as an option rather than a remote. CI runs the suite with `-race` on Ubuntu,
+macOS and Windows, plus `govulncheck`, on every push.
 
 - [x] `identity` — resolve a stable project identity from the git remote
 - [x] `init` — pin an identity for a repo with no remote
@@ -72,19 +76,25 @@ personal layer ──┴─► merged ┴──► diff ─┤   work tree, NOT 
 
 ## Install
 
-**1. The binary.**
+**1. The binary.** Download it for your platform from the
+[latest release](https://github.com/Arlezz/memory-manager/releases/latest) — six targets are built
+from the tagged commit and `SHA256SUMS` is published beside them. `scripts/install.sh` and
+`pwsh -File scripts/install.ps1` do the download, place it under `~/.claude/memory-manager/bin`, and
+wire the hooks for you. Neither needs a Go toolchain.
+
+To build it yourself instead:
 
 ```sh
 go install github.com/Arlezz/memory-manager/cmd/memory-manager@latest
 ```
 
-Needs Go 1.25.8+, and your Go bin directory on `PATH` so the plugin's hook launcher can find the
-result. There are no third-party dependencies to fetch.
+That needs **Go 1.25.8+** — the floor is a patched standard library, not a preference — and your Go
+bin directory on `PATH` so the plugin's hook launcher can find the result. There are no third-party
+dependencies to fetch.
 
-> **Until the first release is tagged, this is the only install that works.** `npm install -g
-> memory-manager-cli` and the `scripts/install.sh` / `pwsh -File scripts/install.ps1` downloads both
-> resolve against artifacts that do not exist yet: the npm package is unpublished and there are no
-> GitHub releases. Both become available with the first tag; neither needs a Go toolchain.
+> `npm install -g memory-manager-cli` does not work yet: the package is unpublished. The release
+> workflow is ready for it and the name is free, but publishing to a registry is irreversible in a
+> way a tag is not, so it waits.
 
 **2. The plugin**, which wires the hooks:
 
